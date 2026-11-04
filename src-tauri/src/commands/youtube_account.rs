@@ -75,10 +75,11 @@ pub async fn youtube_logout<R: Runtime>(
 #[tauri::command]
 pub async fn send_live_chat(
     video_id: String,
-    channel_id: String,
+    channel_id: Option<String>,
     text: String,
     account: State<'_, YouTubeAccountService>,
 ) -> Result<SendChatOutcome, ErrorResponse> {
+    let channel_id = channel_id.unwrap_or_default();
     validate_video_id(&video_id).map_err(ErrorResponse::from)?;
     validate_channel_id(&channel_id).map_err(ErrorResponse::from)?;
     let text = text.trim();

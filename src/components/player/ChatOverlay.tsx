@@ -77,9 +77,13 @@ export function ChatOverlay({ isReplay = false, onClose }: ChatOverlayProps) {
   const lifetimeSeconds = useAppSettingsStore((s) => Number(s.values[SETTINGS.CHAT_OVERLAY_MESSAGE_LIFETIME] ?? 0));
   const maxMessages = useAppSettingsStore((s) => Number(s.values[SETTINGS.CHAT_OVERLAY_MAX_MESSAGES] ?? 18));
   const mergeSetting = useAppSettingsStore((s) => s.values[SETTINGS.CHAT_OVERLAY_MERGE_DUPLICATES] !== "false");
-  const keywords = useAppSettingsStore((s) => parseStringList(s.values[SETTINGS.CHAT_OVERLAY_HIGHLIGHT_KEYWORDS]));
-  const filteredWords = useAppSettingsStore((s) => parseStringList(s.values[SETTINGS.CHAT_OVERLAY_FILTERED_WORDS]));
-  const blockedUsers = useAppSettingsStore((s) => parseStringList(s.values[SETTINGS.CHAT_OVERLAY_BLOCKED_USERS]));
+  // Parse list settings outside the selector: zustand v5 loops on unstable snapshots.
+  const highlightKeywordsRaw = useAppSettingsStore((s) => s.values[SETTINGS.CHAT_OVERLAY_HIGHLIGHT_KEYWORDS]);
+  const filteredWordsRaw = useAppSettingsStore((s) => s.values[SETTINGS.CHAT_OVERLAY_FILTERED_WORDS]);
+  const blockedUsersRaw = useAppSettingsStore((s) => s.values[SETTINGS.CHAT_OVERLAY_BLOCKED_USERS]);
+  const keywords = useMemo(() => parseStringList(highlightKeywordsRaw), [highlightKeywordsRaw]);
+  const filteredWords = useMemo(() => parseStringList(filteredWordsRaw), [filteredWordsRaw]);
+  const blockedUsers = useMemo(() => parseStringList(blockedUsersRaw), [blockedUsersRaw]);
   const emojiSpamFilter = useAppSettingsStore((s) => s.values[SETTINGS.CHAT_OVERLAY_EMOJI_SPAM_FILTER] === "true");
   const geometrySetting = useAppSettingsStore((s) => s.values[SETTINGS.CHAT_OVERLAY_GEOMETRY]);
 
