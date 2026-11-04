@@ -69,6 +69,10 @@ pub enum AppError {
     #[error("Keychain error: {0}")]
     Keychain(String),
 
+    /// A YouTube action that needs a signed-in account, without one.
+    #[error("{0}")]
+    NotSignedIn(String),
+
     /// A sixth profile was asked for; carries the limit.
     #[error("You can have up to {0} profiles")]
     ProfileLimit(usize),
@@ -200,6 +204,7 @@ impl From<AppError> for ErrorResponse {
             AppError::ScrobbleSignInRejected(_) => "scrobbleSignInRejected",
             AppError::ScrobbleKeyMissing(_) => "scrobbleKeyMissing",
             AppError::Keychain(_) => "keychain",
+            AppError::NotSignedIn(_) => "not_signed_in",
             AppError::ProfileLimit(_) => "profileLimit",
             AppError::ProfileName(_) => "profileName",
             AppError::ProfileNotFound(_) => "profileNotFound",
@@ -272,6 +277,7 @@ mod tests {
                 "scrobbleKeyMissing",
             ),
             (AppError::Keychain("c".into()), "keychain"),
+            (AppError::NotSignedIn("n".into()), "not_signed_in"),
             (AppError::ProfileLimit(5), "profileLimit"),
             (AppError::ProfileName("taken"), "profileName"),
             (AppError::ProfileNotFound("p".into()), "profileNotFound"),

@@ -88,6 +88,8 @@ hex = "0.4"
 # keychain (macOS Keychain, Windows Credential Manager, the Secret Service on Linux).
 md-5 = "0.11"
 keyring = "4"
+# YouTube sign-in: authed InnerTube calls carry a SAPISIDHASH SHA-1 digest.
+sha1 = "0.10"
 
 # Local Sync (P2P) — transport: plaintext WebSocket (payload is AES-GCM encrypted), gzip
 # compression (parity with Android java.util.zip), and LAN IP discovery for the QR.

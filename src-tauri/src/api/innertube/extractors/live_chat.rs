@@ -6,7 +6,9 @@ use crate::api::innertube::core::clients;
 use crate::api::innertube::extractors::watch_next;
 use crate::api::innertube::json::thumbnail::largest_url;
 use crate::errors::AppResult;
-use crate::models::live_chat::{LiveChatMessage, LiveChatResponse, LiveChatSegment};
+use crate::models::live_chat::{
+    LiveChatMessage, LiveChatPoll, LiveChatPollOption, LiveChatResponse, LiveChatSegment,
+};
 
 const DEFAULT_POLL_MS: u64 = 2000;
 const MIN_POLL_MS: u64 = 1000;
@@ -132,6 +134,39 @@ fn parse_chat_item(item: &Value) -> Option<LiveChatMessage> {
     None
 }
 
+fn parse_poll(renderer: &Value) -> Option<LiveChatPoll> {
+    let choices = renderer["pollChoices"].as_array()?;
+    let options: Vec<LiveChatPollOption> = choices
+        .iter()
+        .filter_map(|choice| {
+            let choice = &choice["pollChoiceRenderer"];
+            let text = choice["text"]["simpleText"]
+                .as_str()
+                .or_else(|| choice["text"]["runs"][0]["text"].as_str())?;
+            Some(LiveChatPollOption {
+                id: choice["pollOptionId"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+                text: text.to_string(),
+                vote_ratio: choice["voteRatioIfNotVoted"]
+                    .as_f64()
+                    .or_else(|| choice["voteRatio"].as_f64()),
+            })
+        })
+        .collect();
+    Some(LiveChatPoll {
+        id: renderer["id"].as_str().unwrap_or_default().to_string(),
+        question: renderer["pollQuestion"]["simpleText"]
+            .as_str()
+            .or_else(|| renderer["pollQuestion"]["runs"][0]["text"].as_str())
+            .unwrap_or_default()
+            .to_string(),
+        options,
+        voting_disabled: renderer["votingDisabled"].as_bool().unwrap_or(false),
+    })
+}
+
 /// One page of chat: its messages (a replay's with their offset into the
 /// stream), the tokens that continue it, and when to ask again.
 struct ChatPage {
@@ -141,6 +176,9 @@ struct ChatPage {
     polling_interval_ms: u64,
     /// The view selector's "Top chat" and all-messages tokens, in that order.
     views: (Option<String>, Option<String>),
+    pinned: Option<LiveChatMessage>,
+    poll: Option<LiveChatPoll>,
+    deleted: Vec<String>,
 }
 
 fn parse_live_chat_page(res: &Value) -> ChatPage {
@@ -169,6 +207,9 @@ fn parse_live_chat_page(res: &Value) -> ChatPage {
         .clamp(MIN_POLL_MS, MAX_POLL_MS);
 
     let mut messages = Vec::new();
+    let mut pinned = None;
+    let mut poll = None;
+    let mut deleted = Vec::new();
     for action in continuation["actions"].as_array().into_iter().flatten() {
         if let Some(message) = parse_chat_item(&action["addChatItemAction"]["item"]) {
             messages.push(message);
@@ -182,6 +223,21 @@ fn parse_live_chat_page(res: &Value) -> ChatPage {
             if let Some(mut message) = parse_chat_item(&replayed["addChatItemAction"]["item"]) {
                 message.video_offset_ms = offset;
                 messages.push(message);
+            }
+        }
+        // Pinned banner: addBannerToLiveChatCommand.bannerRenderer
+        // .liveChatBannerRenderer.contents holds the pinned chat item.
+        if pinned.is_none() {
+            pinned = parse_chat_item(
+                &action["addBannerToLiveChatCommand"]["bannerRenderer"]["liveChatBannerRenderer"]["contents"],
+            );
+        }
+        if poll.is_none() {
+            poll = parse_poll(&action["updateLiveChatPollAction"]["pollToUpdate"]["pollRenderer"]);
+        }
+        for kind in ["markChatItemAsDeletedAction", "removeChatItemAction"] {
+            if let Some(id) = action[kind]["targetItemId"].as_str() {
+                deleted.push(id.to_string());
             }
         }
     }
@@ -207,6 +263,9 @@ fn parse_live_chat_page(res: &Value) -> ChatPage {
             views.first().cloned().flatten(),
             views.get(1).cloned().flatten(),
         ),
+        pinned,
+        poll,
+        deleted,
     }
 }
 
@@ -237,6 +296,9 @@ impl InnertubeClient {
                     top_chat_continuation: None,
                     all_chat_continuation: None,
                     seek_continuation: None,
+                    pinned_message: None,
+                    poll: None,
+                    deleted_message_ids: Vec::new(),
                 });
             };
             (seed, is_replay)
@@ -268,6 +330,9 @@ impl InnertubeClient {
             top_chat_continuation: page.views.0,
             all_chat_continuation: page.views.1,
             seek_continuation: page.seek,
+            pinned_message: page.pinned,
+            poll: page.poll,
+            deleted_message_ids: page.deleted,
         })
     }
 }
@@ -324,5 +389,89 @@ mod tests {
             (Some("TOP".to_string()), Some("ALL".to_string()))
         );
         assert_eq!(page.messages[0].video_offset_ms, None);
+    }
+
+    #[test]
+    fn the_pinned_banner_holds_the_pinned_message() {
+        let res = json!({ "continuationContents": { "liveChatContinuation": {
+            "actions": [
+                { "addBannerToLiveChatCommand": { "bannerRenderer": { "liveChatBannerRenderer": {
+                    "contents": text_message("pin-1")
+                } } } },
+                { "addChatItemAction": { "item": text_message("c") } }
+            ]
+        } } });
+        let page = parse_live_chat_page(&res);
+        assert_eq!(page.pinned.as_ref().map(|m| m.id.as_str()), Some("pin-1"));
+        assert_eq!(
+            page.pinned.as_ref().map(|m| m.message.as_str()),
+            Some("hello")
+        );
+        assert_eq!(
+            page.messages.len(),
+            1,
+            "the banner is not a regular message"
+        );
+    }
+
+    #[test]
+    fn a_poll_update_carries_the_question_and_choice_ratios() {
+        let res = json!({ "continuationContents": { "liveChatContinuation": {
+            "actions": [{ "updateLiveChatPollAction": { "pollToUpdate": { "pollRenderer": {
+                "id": "poll-1",
+                "pollQuestion": { "runs": [{ "text": "More music?" }] },
+                "pollChoices": [
+                    { "pollChoiceRenderer": {
+                        "pollOptionId": "opt-1",
+                        "text": { "simpleText": "Yes" },
+                        "voteRatioIfNotVoted": 0.75
+                    } },
+                    { "pollChoiceRenderer": {
+                        "pollOptionId": "opt-2",
+                        "text": { "simpleText": "No" }
+                    } }
+                ]
+            } } } }]
+        } } });
+        let page = parse_live_chat_page(&res);
+        let poll = page.poll.expect("poll parsed");
+        assert_eq!(poll.id, "poll-1");
+        assert_eq!(poll.question, "More music?");
+        assert!(!poll.voting_disabled);
+        assert_eq!(poll.options.len(), 2);
+        assert_eq!(poll.options[0].id, "opt-1");
+        assert_eq!(poll.options[0].text, "Yes");
+        assert_eq!(poll.options[0].vote_ratio, Some(0.75));
+        assert_eq!(poll.options[1].vote_ratio, None);
+    }
+
+    #[test]
+    fn deleted_and_removed_actions_name_the_gone_messages() {
+        let res = json!({ "continuationContents": { "liveChatContinuation": {
+            "actions": [
+                { "markChatItemAsDeletedAction": { "targetItemId": "gone-1", "deletedStateMessage": { "runs": [] } } },
+                { "removeChatItemAction": { "targetItemId": "gone-2" } }
+            ]
+        } } });
+        let page = parse_live_chat_page(&res);
+        assert_eq!(
+            page.deleted,
+            vec!["gone-1".to_string(), "gone-2".to_string()]
+        );
+        assert!(page.messages.is_empty());
+    }
+
+    #[test]
+    fn a_response_without_the_new_fields_keeps_empty_defaults() {
+        let raw = r#"{
+            "messages": [],
+            "continuation": null,
+            "pollingIntervalMs": 2000,
+            "isReplay": false
+        }"#;
+        let response: LiveChatResponse = serde_json::from_str(raw).unwrap();
+        assert!(response.pinned_message.is_none());
+        assert!(response.poll.is_none());
+        assert!(response.deleted_message_ids.is_empty());
     }
 }

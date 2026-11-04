@@ -145,6 +145,9 @@ use commands::youtube::{
     get_video_category, get_video_details, get_video_metadata, parse_subscription_export,
     resolve_channel_id, search_videos, stream_subscription_rss_feed, submit_sponsorblock_segment,
 };
+use commands::youtube_account::{
+    send_live_chat, youtube_login_start, youtube_login_status, youtube_logout,
+};
 use services::discord_presence::DiscordPresence;
 use services::music_service::MusicService;
 use services::recommendation_service::RecommendationService;
@@ -398,6 +401,11 @@ pub fn run() {
             let youtube_service = YoutubeService::new(extractor.clone());
             app.manage(youtube_service);
             app.manage(extractor.clone());
+            // The signed-in YouTube account: keychain-backed session, chat send, whoami.
+            app.manage(services::youtube_account::YouTubeAccountService::new(
+                services::youtube_account::YouTubeAccountService::profile_store(&active_profile),
+                extractor.clone(),
+            ));
 
             // The first video otherwise waits on both: the visitor identity every
             // player request carries, and the player script web clients need.
@@ -867,7 +875,12 @@ pub fn run() {
             scrobble_listened,
             scrobble_love,
             scrobble_flush,
-            scrobble_retry_keychain
+            scrobble_retry_keychain,
+            // --- YouTube account (sign-in, live chat send) ---
+            youtube_login_start,
+            youtube_login_status,
+            youtube_logout,
+            send_live_chat
         ])
         .build(context)
         .expect("error while building Flow Desktop")

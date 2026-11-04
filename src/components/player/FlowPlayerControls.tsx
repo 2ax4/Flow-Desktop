@@ -6,6 +6,7 @@ import {
   ListVideo,
   Maximize2,
   MessageSquareText,
+  MessagesSquare,
   Minimize2,
   Pause,
   PictureInPicture2,
@@ -194,6 +195,8 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
     fullscreenPanel,
     setFullscreenPanel,
     isLiveChatAvailable,
+    isChatOverlayOpen,
+    toggleChatOverlayOpen,
   } = usePlayerStore();
 
   const volumeRef = useWheelVolume<HTMLDivElement>({
@@ -778,6 +781,21 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
                   className={panelButtonClass("chat")}
                 >
                   <MessageSquareText size={19} />
+                </button>
+              )}
+              {isLiveChatAvailable && (
+                <button
+                  type="button"
+                  title={getString("chat_overlay_toggle")}
+                  aria-label={getString("chat_overlay_toggle")}
+                  aria-pressed={isChatOverlayOpen}
+                  onClick={toggleChatOverlayOpen}
+                  className={cx(
+                    "grid h-7 w-7 place-items-center rounded-full hover:bg-chrome-white/10",
+                    isChatOverlayOpen && "bg-chrome-white/15 text-primary/90"
+                  )}
+                >
+                  <MessagesSquare size={19} />
                 </button>
               )}
               {sbSubmitEnabled && currentVideo && (

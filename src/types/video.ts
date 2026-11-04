@@ -229,6 +229,19 @@ export interface LiveChatMessage {
   videoOffsetMs?: number | null;
 }
 
+export interface LiveChatPollOption {
+  id: string;
+  text: string;
+  voteRatio?: number | null;
+}
+
+export interface LiveChatPoll {
+  id: string;
+  question: string;
+  options: LiveChatPollOption[];
+  votingDisabled: boolean;
+}
+
 export interface LiveChatResponse {
   messages: LiveChatMessage[];
   continuation?: string | null;
@@ -239,6 +252,12 @@ export interface LiveChatResponse {
   allChatContinuation?: string | null;
   /** A replay token that jumps to another playback position. */
   seekContinuation?: string | null;
+  /** The chat's pinned message, or null when nothing is pinned. */
+  pinnedMessage?: LiveChatMessage | null;
+  /** The chat's active poll, if any. */
+  poll?: LiveChatPoll | null;
+  /** Message ids YouTube removed (deleted or held) after they were delivered. */
+  deletedMessageIds?: string[] | null;
 }
 
 /** SABR (Server Adaptive Bit Rate) availability + local manifest endpoint. */

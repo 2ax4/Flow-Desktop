@@ -5,7 +5,7 @@
 
 /// Device settings defined in `src/lib/settings/schema.ts` (`SETTING_SCOPES`); a test keeps the
 /// two lists equal.
-pub const SCHEMA_DEVICE_KEYS: [&str; 43] = [
+pub const SCHEMA_DEVICE_KEYS: [&str; 62] = [
     "allow_volume_boost",
     "player_volume",
     "player_muted",
@@ -49,6 +49,26 @@ pub const SCHEMA_DEVICE_KEYS: [&str; 43] = [
     "auto_backup_type",
     "discord_rpc_mode",
     "music_tray_enabled",
+    // Live chat overlay and alerts (shared across profiles like the player's own device keys).
+    "chat_overlay_geometry",
+    "chat_overlay_locked",
+    "chat_overlay_font_size",
+    "chat_overlay_opacity",
+    "chat_overlay_bubbles",
+    "chat_overlay_avatars",
+    "chat_overlay_badges",
+    "chat_overlay_fade_idle",
+    "chat_overlay_message_lifetime",
+    "chat_overlay_max_messages",
+    "chat_overlay_highlight_keywords",
+    "chat_overlay_filtered_words",
+    "chat_overlay_blocked_users",
+    "chat_overlay_emoji_spam_filter",
+    "chat_overlay_merge_duplicates",
+    "chat_alerts_sound_superchat",
+    "chat_alerts_sound_highlight",
+    "chat_alerts_tts_superchat",
+    "chat_alerts_tts_highlight",
 ];
 
 /// Device keys the frontend stores outside the schema.

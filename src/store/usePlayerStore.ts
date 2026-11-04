@@ -208,6 +208,10 @@ export interface PlayerState {
   /** The watch page has a live chat or chat replay to show. */
   isLiveChatAvailable: boolean;
   setIsLiveChatAvailable: (available: boolean) => void;
+  /** The floating chat overlay over the video. */
+  isChatOverlayOpen: boolean;
+  setChatOverlayOpen: (open: boolean) => void;
+  toggleChatOverlayOpen: () => void;
 }
 
 export type FullscreenPanel = "chapters" | "queue" | "chat";
@@ -759,6 +763,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     ...(fullscreenPanel === "queue" ? { isQueuePanelOpen: true, isChaptersPanelOpen: false } : {}),
   }),
   setIsLiveChatAvailable: (isLiveChatAvailable) => set({ isLiveChatAvailable }),
+  isChatOverlayOpen: false,
+  setChatOverlayOpen: (isChatOverlayOpen) => set({ isChatOverlayOpen }),
+  toggleChatOverlayOpen: () => set((state) => ({ isChatOverlayOpen: !state.isChatOverlayOpen })),
   subtitleStyle: getSavedSubtitleStyle(),
   setSubtitleStyle: (style) => {
     profileStorage.setItem("flow_subtitle_style", JSON.stringify(style));

@@ -39,6 +39,7 @@ impl InnertubeClient {
             client: &clients::WEB,
             referer: None,
             extra_query: None,
+            auth: None,
         };
         let payload = serde_json::json!({ "context": clients::WEB.context(None, None) });
         match send(&self.playback_client, &spec, &payload, None).await {

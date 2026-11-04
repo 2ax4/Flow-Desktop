@@ -107,6 +107,7 @@ file	.window-state.json	DEVICE	-	Window size and position
 file	startup_state.json	DEVICE	-	Linux startup tiers, read before any profile is known
 file	toast_logo	DEVICE	-	Windows notification logo
 keychain	CREDENTIALS	PROFILE	private	Scrobbling credentials; CREDENTIALS@<id> outside Default
+keychain	YOUTUBE_COOKIES	PROFILE	private	YouTube session cookies; YOUTUBE_COOKIES@<id> outside Default
 keychain	LASTFM	DEFAULT_ONLY	private	Legacy entry migrated into Default's CREDENTIALS
 keychain	LIBREFM	DEFAULT_ONLY	private	Legacy entry migrated into Default's CREDENTIALS
 keychain	LISTENBRAINZ	DEFAULT_ONLY	private	Legacy entry migrated into Default's CREDENTIALS

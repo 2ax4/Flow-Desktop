@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Loader2, Radio, ShieldCheck, BadgeCheck, ArrowDown, RotateCw, X } from "lucide-react";
-import { useLiveChat, type ChatView, type LiveChatState } from "../../lib/useLiveChat";
+import { useChatEngine, useChatState, useChatStore } from "../../store/useChatStore";
+import type { ChatView, LiveChatState } from "../../store/useChatStore";
 import { useChatReplay } from "../../lib/useChatReplay";
 import { getString } from "../../lib/i18n/index";
 import { selectionTouches } from "../../lib/textSelection";
@@ -131,7 +132,9 @@ function ChatRow({ message }: { message: LiveChatMessage }) {
 }
 
 function StreamChat({ videoId, view, ...panel }: ChatPanelSource) {
-  const chat = useLiveChat(videoId, true, view);
+  // Shared engine: the sidebar and the floating overlay read one poller, never two.
+  useChatEngine(videoId, false);
+  const chat = useChatState();
   return <ChatPanel chat={chat} isReplay={false} view={view} {...panel} />;
 }
 
@@ -150,11 +153,16 @@ interface ChatPanelSource {
 
 /** A live stream's chat, or a finished stream's chat replayed in step with the player. */
 export function LiveChat({ videoId, isReplay, fill, onClose }: LiveChatProps) {
-  const [view, setView] = useState<ChatView>("top");
+  // Live views are shared with the overlay through the chat store; replays stay local.
+  const storeView = useChatStore((s) => s.view);
+  const setStoreView = useChatStore((s) => s.setView);
+  const [replayView, setReplayView] = useState<ChatView>("top");
+  const view = isReplay ? replayView : storeView;
+  const onViewChange = isReplay ? setReplayView : setStoreView;
   return isReplay ? (
-    <ReplayChat videoId={videoId} view={view} onViewChange={setView} fill={fill} onClose={onClose} />
+    <ReplayChat videoId={videoId} view={view} onViewChange={onViewChange} fill={fill} onClose={onClose} />
   ) : (
-    <StreamChat videoId={videoId} view={view} onViewChange={setView} fill={fill} onClose={onClose} />
+    <StreamChat videoId={videoId} view={view} onViewChange={onViewChange} fill={fill} onClose={onClose} />
   );
 }
 

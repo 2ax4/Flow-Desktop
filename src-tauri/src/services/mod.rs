@@ -17,4 +17,5 @@ pub mod theme_file;
 pub mod win_mixer;
 #[cfg(windows)]
 pub mod win_notify;
+pub mod youtube_account;
 pub mod youtube_service;

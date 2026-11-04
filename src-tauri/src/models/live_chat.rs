@@ -51,4 +51,32 @@ pub struct LiveChatResponse {
     /// A replay token that jumps to another playback position.
     #[serde(default)]
     pub seek_continuation: Option<String>,
+    /// The chat message pinned by the streamer, when the page carried one.
+    #[serde(default)]
+    pub pinned_message: Option<LiveChatMessage>,
+    /// A live poll and its current vote ratios, when the page carried one.
+    #[serde(default)]
+    pub poll: Option<LiveChatPoll>,
+    /// Messages removed while the page was open, by their chat item id.
+    #[serde(default)]
+    pub deleted_message_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveChatPollOption {
+    pub id: String,
+    pub text: String,
+    /// Share of votes when the page was built; absent before any vote arrived.
+    #[serde(default)]
+    pub vote_ratio: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveChatPoll {
+    pub id: String,
+    pub question: String,
+    pub options: Vec<LiveChatPollOption>,
+    pub voting_disabled: bool,
 }

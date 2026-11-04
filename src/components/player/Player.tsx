@@ -29,6 +29,7 @@ import {
   type PlayerVolumeFeedback,
 } from "./gesture/overlay";
 import { SubtitleOverlay } from "./SubtitleOverlay";
+import { ChatOverlay } from "./ChatOverlay";
 import { SETTINGS } from "../../lib/settings/schema";
 import { loudnessFactor } from "../../lib/loudness";
 import { useVideoEq } from "../../lib/audio/useVideoEq";
@@ -484,6 +485,10 @@ export const Player: React.FC<PlayerProps> = ({
     setIsVideoFullscreen: setIsFullscreen,
     setIsVideoFullscreenTransitioning,
   } = usePlayerStore();
+
+  const isChatOverlayOpen = usePlayerStore((state) => state.isChatOverlayOpen);
+  const isLiveChatAvailable = usePlayerStore((state) => state.isLiveChatAvailable);
+  const closeChatOverlay = useCallback(() => usePlayerStore.getState().setChatOverlayOpen(false), []);
 
   usePersistedPlayerVolume();
 
@@ -2904,6 +2909,9 @@ export const Player: React.FC<PlayerProps> = ({
         currentTime={currentTime}
         shouldShowControls={shouldShowControls}
       />
+
+      {/* Floating live chat overlay (above the video, below menus/captions) */}
+      {isChatOverlayOpen && isLiveChatAvailable && <ChatOverlay isReplay={!isLive} onClose={closeChatOverlay} />}
 
       {(isLoading || error || errorInfo) && (
         <div className="absolute inset-0 z-30 grid place-items-center bg-chrome-black/60 px-6 text-center">

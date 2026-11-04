@@ -31,6 +31,15 @@ impl Host {
     }
 }
 
+/// The signed-in identity a request may carry: every captured YouTube cookie
+/// plus a `SAPISIDHASH` authorization. Anonymous requests keep their
+/// `SOCS=CAE=`-only cookie set.
+#[derive(Clone, Debug)]
+pub struct AuthHeaders {
+    pub cookie: String,
+    pub authorization: String,
+}
+
 /// One request: where it goes and who it claims to be.
 #[derive(Clone, Copy, Debug)]
 pub struct RequestSpec<'a> {
@@ -41,6 +50,8 @@ pub struct RequestSpec<'a> {
     pub referer: Option<&'a str>,
     /// Appended to the URL, such as the music search's `&ctoken=…`.
     pub extra_query: Option<&'a str>,
+    /// Sent as `Cookie` + `Authorization` instead of the anonymous cookie.
+    pub auth: Option<&'a AuthHeaders>,
 }
 
 impl RequestSpec<'_> {
@@ -59,6 +70,9 @@ impl RequestSpec<'_> {
     #[must_use]
     pub fn headers(&self, visitor: Option<&str>) -> Vec<(&'static str, String)> {
         let origin = self.host.origin();
+        let cookie = self
+            .auth
+            .map_or_else(|| "SOCS=CAE=".to_string(), |auth| auth.cookie.clone());
         let mut headers = vec![
             ("User-Agent", self.client.user_agent.to_string()),
             ("X-YouTube-Client-Name", self.client.client_id.to_string()),
@@ -70,8 +84,11 @@ impl RequestSpec<'_> {
                 "Referer",
                 self.referer.unwrap_or(self.host.referer()).to_string(),
             ),
-            ("Cookie", "SOCS=CAE=".to_string()),
+            ("Cookie", cookie),
         ];
+        if let Some(authorization) = self.auth.map(|auth| auth.authorization.clone()) {
+            headers.push(("Authorization", authorization));
+        }
         if let Some(visitor) = visitor.filter(|value| !value.is_empty()) {
             headers.push(("X-Goog-Visitor-Id", visitor.to_string()));
         }
@@ -144,6 +161,7 @@ mod tests {
                 client,
                 referer: None,
                 extra_query: None,
+                auth: None,
             };
             let headers = spec.headers(Some("visitor-1"));
             assert_eq!(header(&headers, "User-Agent"), Some(client.user_agent));
@@ -170,6 +188,7 @@ mod tests {
             client: &WEB,
             referer: Some("https://youtu.be/abc"),
             extra_query: None,
+            auth: None,
         };
         let headers = spec.headers(None);
         assert!(header(&headers, "X-Goog-Visitor-Id").is_none());
@@ -185,10 +204,34 @@ mod tests {
             client: &WEB_REMIX,
             referer: None,
             extra_query: Some("&ctoken=abc"),
+            auth: None,
         };
         assert_eq!(
             spec.url(),
             "https://music.youtube.com/youtubei/v1/search?prettyPrint=false&ctoken=abc"
+        );
+    }
+
+    #[test]
+    fn authed_requests_swap_the_anonymous_cookie_for_the_users() {
+        let spec = RequestSpec {
+            host: Host::Www,
+            endpoint: "live_chat/send_message",
+            client: &WEB,
+            referer: None,
+            extra_query: None,
+            auth: Some(&AuthHeaders {
+                cookie: "SID=x; SAPISID=y".into(),
+                authorization: "SAPISIDHASH 1_abc".into(),
+            }),
+        };
+        let headers = spec.headers(None);
+        assert_eq!(header(&headers, "Cookie"), Some("SID=x; SAPISID=y"));
+        assert_eq!(header(&headers, "Authorization"), Some("SAPISIDHASH 1_abc"));
+        assert_eq!(header(&headers, "Origin"), Some("https://www.youtube.com"));
+        assert_eq!(
+            header(&headers, "Referer"),
+            Some("https://www.youtube.com/")
         );
     }
 

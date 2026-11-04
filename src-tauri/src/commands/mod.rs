@@ -25,3 +25,4 @@ pub mod theme;
 pub mod tray;
 pub mod window;
 pub mod youtube;
+pub mod youtube_account;

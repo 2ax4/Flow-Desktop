@@ -10,3 +10,4 @@ pub mod rich_text;
 pub mod search;
 pub mod shorts;
 pub mod video;
+pub mod youtube_account;

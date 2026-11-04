@@ -2,7 +2,7 @@ use crate::api::innertube::InnertubeClient;
 use crate::api::innertube::core::clients::YouTubeClient;
 use crate::api::innertube::transport::error::{TransportError, to_app_error};
 use crate::api::innertube::transport::request::{
-    Host, RequestSpec, body_visitor, ensure_context, strip_visitor,
+    AuthHeaders, Host, RequestSpec, body_visitor, ensure_context, strip_visitor,
 };
 use crate::api::innertube::transport::send::send;
 use crate::errors::AppResult;
@@ -44,6 +44,29 @@ impl InnertubeClient {
             payload,
             None,
             None,
+            None,
+        )
+        .await
+    }
+
+    /// [`Self::post_innertube`] carrying the signed-in user's cookies and a
+    /// `SAPISIDHASH` authorization. Anonymous calls keep their own header set.
+    pub async fn post_innertube_authed(
+        &self,
+        endpoint: &str,
+        client: &YouTubeClient,
+        payload: &mut Value,
+        auth: &AuthHeaders,
+    ) -> AppResult<Value> {
+        self.post_via(
+            &self.client,
+            Host::Www,
+            endpoint,
+            client,
+            payload,
+            None,
+            None,
+            Some(auth),
         )
         .await
     }
@@ -62,6 +85,7 @@ impl InnertubeClient {
             endpoint,
             client,
             payload,
+            None,
             None,
             None,
         )
@@ -83,6 +107,7 @@ impl InnertubeClient {
             payload,
             referer,
             None,
+            None,
         )
         .await
     }
@@ -103,6 +128,7 @@ impl InnertubeClient {
         payload: &mut Value,
         referer: Option<&str>,
         extra_query: Option<&str>,
+        auth: Option<&AuthHeaders>,
     ) -> AppResult<Value> {
         let spec = RequestSpec {
             host,
@@ -110,6 +136,7 @@ impl InnertubeClient {
             client,
             referer,
             extra_query,
+            auth,
         };
         let added = if payload.get("context").is_some() {
             false
