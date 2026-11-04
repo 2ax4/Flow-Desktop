@@ -5,7 +5,7 @@
 
 /// Device settings defined in `src/lib/settings/schema.ts` (`SETTING_SCOPES`); a test keeps the
 /// two lists equal.
-pub const SCHEMA_DEVICE_KEYS: [&str; 62] = [
+pub const SCHEMA_DEVICE_KEYS: [&str; 78] = [
     "allow_volume_boost",
     "player_volume",
     "player_muted",
@@ -64,7 +64,23 @@ pub const SCHEMA_DEVICE_KEYS: [&str; 62] = [
     "chat_overlay_filtered_words",
     "chat_overlay_blocked_users",
     "chat_overlay_emoji_spam_filter",
+    "chat_overlay_emoji_spam_threshold",
     "chat_overlay_merge_duplicates",
+    "chat_overlay_font_family",
+    "chat_overlay_font_color",
+    "chat_overlay_font_weight",
+    "chat_overlay_text_outline",
+    "chat_overlay_name_color_mode",
+    "chat_overlay_name_color",
+    "chat_overlay_hide_usernames",
+    "chat_overlay_avatar_size",
+    "chat_overlay_emote_size",
+    "chat_overlay_badge_size",
+    "chat_overlay_bubble_opacity",
+    "chat_overlay_radius",
+    "chat_overlay_message_gap",
+    "chat_overlay_animation",
+    "chat_overlay_superchat_min",
     "chat_alerts_sound_superchat",
     "chat_alerts_sound_highlight",
     "chat_alerts_tts_superchat",

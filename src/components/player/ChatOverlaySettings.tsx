@@ -26,6 +26,12 @@ function useSettingNumber(key: SettingKey, fallback: number): [number, (value: n
   return [Number.isFinite(value) ? value : fallback, (next) => void setSettingValue(key, String(next))];
 }
 
+function useSettingStr(key: SettingKey, fallback: string): [string, (value: string) => void] {
+  const stored = useAppSettingsStore((s) => s.values[key]);
+  const value = stored === undefined ? fallback : stored;
+  return [value, (next) => void setSettingValue(key, next)];
+}
+
 function PopupShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="absolute right-2 top-9 z-40 flex max-h-[75%] w-[min(300px,calc(100%-1rem))] flex-col overflow-hidden rounded-lg border border-white/15 bg-chrome-neutral-950/95 shadow-2xl backdrop-blur-sm">
@@ -51,6 +57,50 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <span className="text-xs text-white/80">{label}</span>
       {children}
     </div>
+  );
+}
+
+function Choices({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          aria-pressed={value === option.value}
+          onClick={() => onChange(option.value)}
+          className={cx(
+            "rounded-full px-1.5 py-0.5 text-[10px] font-semibold transition-colors",
+            value === option.value ? "bg-white/20 text-white" : "text-white/60 hover:bg-white/10",
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ColorInput({ value, onChange, label }: { value: string; onChange: (next: string) => void; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <input
+        type="color"
+        value={/^#[0-9a-fA-F]{6}$/.test(value) ? value : "#ffffff"}
+        onChange={(event) => onChange(event.target.value)}
+        aria-label={label}
+        className="h-6 w-8 cursor-pointer rounded border-0 bg-transparent p-0"
+      />
+      <span className="w-14 text-[10px] tabular-nums text-white/60">{value}</span>
+    </span>
   );
 }
 
@@ -98,7 +148,24 @@ export function ChatOverlaySettings({ onClose }: { onClose: () => void }) {
   const [badges, setBadges] = useSettingBool(SETTINGS.CHAT_OVERLAY_BADGES, true);
   const [fadeIdle, setFadeIdle] = useSettingBool(SETTINGS.CHAT_OVERLAY_FADE_IDLE, true);
   const [emojiSpam, setEmojiSpam] = useSettingBool(SETTINGS.CHAT_OVERLAY_EMOJI_SPAM_FILTER, false);
+  const [emojiThreshold, setEmojiThreshold] = useSettingNumber(SETTINGS.CHAT_OVERLAY_EMOJI_SPAM_THRESHOLD, 8);
   const [mergeDuplicates, setMergeDuplicates] = useSettingBool(SETTINGS.CHAT_OVERLAY_MERGE_DUPLICATES, true);
+  const [hideUsernames, setHideUsernames] = useSettingBool(SETTINGS.CHAT_OVERLAY_HIDE_USERNAMES, false);
+
+  const [fontFamily, setFontFamily] = useSettingStr(SETTINGS.CHAT_OVERLAY_FONT_FAMILY, "");
+  const [fontColor, setFontColor] = useSettingStr(SETTINGS.CHAT_OVERLAY_FONT_COLOR, "#ffffff");
+  const [fontWeight, setFontWeight] = useSettingStr(SETTINGS.CHAT_OVERLAY_FONT_WEIGHT, "normal");
+  const [textOutline, setTextOutline] = useSettingStr(SETTINGS.CHAT_OVERLAY_TEXT_OUTLINE, "none");
+  const [nameColorMode, setNameColorMode] = useSettingStr(SETTINGS.CHAT_OVERLAY_NAME_COLOR_MODE, "original");
+  const [nameColor, setNameColor] = useSettingStr(SETTINGS.CHAT_OVERLAY_NAME_COLOR, "#3ea6ff");
+  const [avatarSize, setAvatarSize] = useSettingNumber(SETTINGS.CHAT_OVERLAY_AVATAR_SIZE, 1);
+  const [emoteSize, setEmoteSize] = useSettingNumber(SETTINGS.CHAT_OVERLAY_EMOTE_SIZE, 1);
+  const [badgeSize, setBadgeSize] = useSettingNumber(SETTINGS.CHAT_OVERLAY_BADGE_SIZE, 1);
+  const [bubbleOpacity, setBubbleOpacity] = useSettingNumber(SETTINGS.CHAT_OVERLAY_BUBBLE_OPACITY, 13);
+  const [radius, setRadius] = useSettingNumber(SETTINGS.CHAT_OVERLAY_RADIUS, 12);
+  const [messageGap, setMessageGap] = useSettingNumber(SETTINGS.CHAT_OVERLAY_MESSAGE_GAP, 4);
+  const [animation, setAnimation] = useSettingStr(SETTINGS.CHAT_OVERLAY_ANIMATION, "slide-left");
+  const [superchatMin, setSuperchatMin] = useSettingNumber(SETTINGS.CHAT_OVERLAY_SUPERCHAT_MIN, 0);
   const [soundSuperChat, setSoundSuperChat] = useSettingBool(SETTINGS.CHAT_ALERTS_SOUND_SUPERCHAT, true);
   const [soundHighlight, setSoundHighlight] = useSettingBool(SETTINGS.CHAT_ALERTS_SOUND_HIGHLIGHT, false);
   const [ttsSuperChat, setTtsSuperChat] = useSettingBool(SETTINGS.CHAT_ALERTS_TTS_SUPERCHAT, false);
@@ -167,6 +234,120 @@ export function ChatOverlaySettings({ onClose }: { onClose: () => void }) {
         <Row label={getString("chat_overlay_merge")}>
           <ToggleSwitch checked={mergeDuplicates} onChange={setMergeDuplicates} />
         </Row>
+        <Row label={getString("chat_overlay_hide_usernames")}>
+          <ToggleSwitch checked={hideUsernames} onChange={setHideUsernames} />
+        </Row>
+      </div>
+
+      <div className="space-y-2 border-t border-white/10 pt-2">
+        <p className="text-xs font-bold uppercase tracking-wide text-white/70">{getString("chat_overlay_appearance_title")}</p>
+        <Row label={getString("chat_overlay_font_family")}>
+          <TextInput
+            value={fontFamily}
+            placeholder="Arial, sans-serif"
+            onChange={setFontFamily}
+            className="w-36 !text-xs"
+          />
+        </Row>
+        <Row label={getString("chat_overlay_font_color")}>
+          <ColorInput value={fontColor} onChange={setFontColor} label={getString("chat_overlay_font_color")} />
+        </Row>
+        <Row label={getString("chat_overlay_font_weight")}>
+          <Choices
+            value={fontWeight}
+            onChange={setFontWeight}
+            options={[
+              { value: "normal", label: getString("chat_overlay_weight_normal") },
+              { value: "bold", label: getString("chat_overlay_weight_bold") },
+            ]}
+          />
+        </Row>
+        <Row label={getString("chat_overlay_text_outline")}>
+          <Choices
+            value={textOutline}
+            onChange={setTextOutline}
+            options={[
+              { value: "none", label: getString("chat_overlay_outline_none") },
+              { value: "normal", label: getString("chat_overlay_outline_normal") },
+              { value: "bold", label: getString("chat_overlay_outline_bold") },
+            ]}
+          />
+        </Row>
+        <Row label={getString("chat_overlay_name_color")}>
+          <Choices
+            value={nameColorMode}
+            onChange={setNameColorMode}
+            options={[
+              { value: "original", label: getString("chat_overlay_name_original") },
+              { value: "custom", label: getString("chat_overlay_name_custom") },
+            ]}
+          />
+        </Row>
+        {nameColorMode === "custom" && (
+          <Row label={getString("chat_overlay_name_custom_color")}>
+            <ColorInput value={nameColor} onChange={setNameColor} label={getString("chat_overlay_name_custom_color")} />
+          </Row>
+        )}
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-xs text-white/80">
+            <span>{getString("chat_overlay_avatar_size")}</span>
+            <span className="tabular-nums text-white/60">{avatarSize.toFixed(1)}x</span>
+          </div>
+          <Slider value={avatarSize} min={0.8} max={2.5} step={0.1} onChange={setAvatarSize} aria-label={getString("chat_overlay_avatar_size")} />
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-xs text-white/80">
+            <span>{getString("chat_overlay_emote_size")}</span>
+            <span className="tabular-nums text-white/60">{emoteSize.toFixed(1)}x</span>
+          </div>
+          <Slider value={emoteSize} min={0.8} max={2.5} step={0.1} onChange={setEmoteSize} aria-label={getString("chat_overlay_emote_size")} />
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-xs text-white/80">
+            <span>{getString("chat_overlay_badge_size")}</span>
+            <span className="tabular-nums text-white/60">{badgeSize.toFixed(1)}x</span>
+          </div>
+          <Slider value={badgeSize} min={0.8} max={2} step={0.1} onChange={setBadgeSize} aria-label={getString("chat_overlay_badge_size")} />
+        </div>
+      </div>
+
+      <div className="space-y-2 border-t border-white/10 pt-2">
+        <p className="text-xs font-bold uppercase tracking-wide text-white/70">{getString("chat_overlay_style_title")}</p>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-xs text-white/80">
+            <span>{getString("chat_overlay_bubble_opacity")}</span>
+            <span className="tabular-nums text-white/60">{Math.round(bubbleOpacity)}%</span>
+          </div>
+          <Slider value={bubbleOpacity} min={0} max={40} onChange={setBubbleOpacity} aria-label={getString("chat_overlay_bubble_opacity")} />
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-xs text-white/80">
+            <span>{getString("chat_overlay_radius")}</span>
+            <span className="tabular-nums text-white/60">{Math.round(radius)}px</span>
+          </div>
+          <Slider value={radius} min={0} max={24} onChange={setRadius} aria-label={getString("chat_overlay_radius")} />
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-xs text-white/80">
+            <span>{getString("chat_overlay_message_gap")}</span>
+            <span className="tabular-nums text-white/60">{Math.round(messageGap)}px</span>
+          </div>
+          <Slider value={messageGap} min={0} max={16} onChange={setMessageGap} aria-label={getString("chat_overlay_message_gap")} />
+        </div>
+        <Row label={getString("chat_overlay_animation")}>
+          <Choices
+            value={animation}
+            onChange={setAnimation}
+            options={[
+              { value: "none", label: getString("chat_overlay_anim_none") },
+              { value: "fade", label: getString("chat_overlay_anim_fade") },
+              { value: "slide-left", label: getString("chat_overlay_anim_slide") },
+            ]}
+          />
+        </Row>
+        <Row label={getString("chat_overlay_superchat_min")}>
+          <Slider value={superchatMin} min={0} max={100} onChange={setSuperchatMin} aria-label={getString("chat_overlay_superchat_min")} />
+        </Row>
       </div>
 
       <div className="space-y-2 border-t border-white/10 pt-2">
@@ -190,6 +371,15 @@ export function ChatOverlaySettings({ onClose }: { onClose: () => void }) {
         <ListField label={getString("chat_overlay_highlight")} placeholder={getString("chat_overlay_highlight_placeholder")} settingKey={SETTINGS.CHAT_OVERLAY_HIGHLIGHT_KEYWORDS} />
         <ListField label={getString("chat_overlay_filtered_words")} placeholder={getString("chat_overlay_filtered_words_placeholder")} settingKey={SETTINGS.CHAT_OVERLAY_FILTERED_WORDS} />
         <ListField label={getString("chat_overlay_blocked_users")} placeholder={getString("chat_overlay_blocked_users_placeholder")} settingKey={SETTINGS.CHAT_OVERLAY_BLOCKED_USERS} />
+        {emojiSpam && (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-xs text-white/80">
+              <span>{getString("chat_overlay_emoji_spam_threshold")}</span>
+              <span className="tabular-nums text-white/60">{Math.round(emojiThreshold)}</span>
+            </div>
+            <Slider value={emojiThreshold} min={4} max={12} onChange={setEmojiThreshold} aria-label={getString("chat_overlay_emoji_spam_threshold")} />
+          </div>
+        )}
       </div>
     </PopupShell>
   );

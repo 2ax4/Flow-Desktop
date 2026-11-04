@@ -34,7 +34,10 @@ const RETRY_MS = 3000;
 const MAX_RETRY_MS = 30000;
 const MAX_FAILURES = 6;
 const MAX_RESEEDS = 3;
-const MIN_POLL_MS = 800;
+const MIN_POLL_MS = 600;
+// InnerTube's own timeoutMs can be 10-45s; honoring it makes chat arrive in
+// batches. YouTube's web client effectively polls around every second.
+const MAX_POLL_MS = 1500;
 // Half-second replay steps, like useChatReplay: fine enough for chat, no per-frame renders.
 const REPLAY_TICK_MS = 500;
 
@@ -185,7 +188,7 @@ class ChatEngine {
       this.failures = 0;
       this.reseeds = 0;
       this.continuation = page.continuation;
-      this.scheduleLive(Math.max(MIN_POLL_MS, page.pollingIntervalMs || 2000));
+      this.scheduleLive(Math.min(Math.max(MIN_POLL_MS, page.pollingIntervalMs || MIN_POLL_MS), MAX_POLL_MS));
     } catch (err) {
       if (!this.running || generation !== this.generation) return;
       this.failures += 1;

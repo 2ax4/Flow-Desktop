@@ -86,6 +86,22 @@ export function ChatOverlay({ isReplay = false, onClose }: ChatOverlayProps) {
   const blockedUsers = useMemo(() => parseStringList(blockedUsersRaw), [blockedUsersRaw]);
   const emojiSpamFilter = useAppSettingsStore((s) => s.values[SETTINGS.CHAT_OVERLAY_EMOJI_SPAM_FILTER] === "true");
   const geometrySetting = useAppSettingsStore((s) => s.values[SETTINGS.CHAT_OVERLAY_GEOMETRY]);
+  const fontFamily = useAppSettingsStore((s) => s.values[SETTINGS.CHAT_OVERLAY_FONT_FAMILY] || "");
+  const fontColor = useAppSettingsStore((s) => s.values[SETTINGS.CHAT_OVERLAY_FONT_COLOR] || "#ffffff");
+  const fontWeight = useAppSettingsStore((s) => s.values[SETTINGS.CHAT_OVERLAY_FONT_WEIGHT] || "normal");
+  const outline = useAppSettingsStore((s) => s.values[SETTINGS.CHAT_OVERLAY_TEXT_OUTLINE] || "none");
+  const nameColorMode = useAppSettingsStore((s) => s.values[SETTINGS.CHAT_OVERLAY_NAME_COLOR_MODE] || "original");
+  const nameColor = useAppSettingsStore((s) => s.values[SETTINGS.CHAT_OVERLAY_NAME_COLOR] || "#3ea6ff");
+  const hideUsernames = useAppSettingsStore((s) => s.values[SETTINGS.CHAT_OVERLAY_HIDE_USERNAMES] === "true");
+  const avatarSize = useAppSettingsStore((s) => Number(s.values[SETTINGS.CHAT_OVERLAY_AVATAR_SIZE] ?? 1));
+  const emoteSize = useAppSettingsStore((s) => Number(s.values[SETTINGS.CHAT_OVERLAY_EMOTE_SIZE] ?? 1));
+  const badgeSize = useAppSettingsStore((s) => Number(s.values[SETTINGS.CHAT_OVERLAY_BADGE_SIZE] ?? 1));
+  const bubbleOpacity = useAppSettingsStore((s) => Number(s.values[SETTINGS.CHAT_OVERLAY_BUBBLE_OPACITY] ?? 13));
+  const radius = useAppSettingsStore((s) => Number(s.values[SETTINGS.CHAT_OVERLAY_RADIUS] ?? 12));
+  const messageGap = useAppSettingsStore((s) => Number(s.values[SETTINGS.CHAT_OVERLAY_MESSAGE_GAP] ?? 4));
+  const animation = useAppSettingsStore((s) => s.values[SETTINGS.CHAT_OVERLAY_ANIMATION] || "slide-left");
+  const superchatMin = useAppSettingsStore((s) => Number(s.values[SETTINGS.CHAT_OVERLAY_SUPERCHAT_MIN] ?? 0));
+  const emojiThreshold = useAppSettingsStore((s) => Number(s.values[SETTINGS.CHAT_OVERLAY_EMOJI_SPAM_THRESHOLD] ?? 8));
 
   const messages = useChatStore((s) => s.messages);
   const loading = useChatStore((s) => s.loading);
@@ -153,8 +169,15 @@ export function ChatOverlay({ isReplay = false, onClose }: ChatOverlayProps) {
     return () => clearInterval(interval);
   }, [fadeIdle]);
 
-  // Session log for analytics, and a new message counts as panel activity.
+  // Session log for analytics; the first batch is backlog, later ones are live.
+  const sessionSeededRef = useRef(false);
   useEffect(() => {
+    if (messages.length === 0) return;
+    if (!sessionSeededRef.current) {
+      sessionSeededRef.current = true;
+      for (const message of messages) sessionSeenIdsRef.current.add(message.id);
+      return;
+    }
     let added = false;
     for (const message of messages) {
       if (sessionSeenIdsRef.current.has(message.id)) continue;
@@ -187,8 +210,16 @@ export function ChatOverlay({ isReplay = false, onClose }: ChatOverlayProps) {
   }, []);
 
   const filtered = useMemo(
-    () => toOverlayMessages(messages, { keywords, filteredWords, blockedUsers, emojiSpamFilter }),
-    [messages, keywords, filteredWords, blockedUsers, emojiSpamFilter],
+    () =>
+      toOverlayMessages(messages, {
+        keywords,
+        filteredWords,
+        blockedUsers,
+        emojiSpamFilter,
+        emojiSpamThreshold: emojiThreshold,
+        superChatMinAmount: superchatMin,
+      }),
+    [messages, keywords, filteredWords, blockedUsers, emojiSpamFilter, emojiThreshold, superchatMin],
   );
   const visible = useMemo(() => filtered.slice(-maxMessages), [filtered, maxMessages]);
   const rows = useMemo(() => {
@@ -279,21 +310,41 @@ export function ChatOverlay({ isReplay = false, onClose }: ChatOverlayProps) {
 
   const showPinnedBar = pinnedMessage && pinnedMessage.id !== pinnedDismissedId;
 
+  const entranceInitial: boolean | { opacity: number; x?: number } =
+    animation === "none" ? false : animation === "fade" ? { opacity: 0 } : { opacity: 0, x: 24 };
+  const rowStyle: OverlayRowStyle = {
+    bubbles,
+    avatars,
+    badges,
+    fontColor,
+    fontWeight,
+    outline,
+    bubbleOpacity,
+    avatarSize,
+    badgeSize,
+    emoteSize,
+    nameColorMode,
+    nameColor,
+    hideUsernames,
+  };
+
   return (
     <motion.div
       ref={panelRef}
       role="complementary"
       aria-label={getString("chat_overlay_title")}
-      className="absolute z-20 flex flex-col overflow-hidden rounded-xl border border-white/15 text-white shadow-2xl"
+      className="absolute z-20 flex flex-col overflow-hidden border border-white/15 text-white shadow-2xl"
       style={{
         left: `${geometry.leftRatio * 100}%`,
         top: `${geometry.topRatio * 100}%`,
         width: `${geometry.widthRatio * 100}%`,
         height: `${geometry.heightRatio * 100}%`,
         backgroundColor: `rgba(0, 0, 0, ${opacity / 100})`,
+        borderRadius: `${radius}px`,
+        fontFamily: fontFamily || undefined,
       }}
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: faded ? FADED_OPACITY : 1, y: 0 }}
+      initial={entranceInitial}
+      animate={{ opacity: faded ? FADED_OPACITY : 1, x: 0 }}
       transition={{ duration: 0.15, ease: "easeOut" }}
       onPointerMove={bumpActivity}
       onPointerDown={bumpActivity}
@@ -376,7 +427,7 @@ export function ChatOverlay({ isReplay = false, onClose }: ChatOverlayProps) {
       )}
       {popup === "analytics" && (
         <ChatOverlayAnalytics
-          messages={sessionLogRef.current}
+          messages={sessionLogRef.current.slice()}
           sessionStartMs={sessionStartRef.current}
           onClose={() => setPopup(null)}
         />
@@ -436,8 +487,8 @@ export function ChatOverlay({ isReplay = false, onClose }: ChatOverlayProps) {
       <div className="relative min-h-0 flex-1">
         <div
           ref={listRef}
-          className="hide-scrollbar h-full space-y-1 overflow-y-auto px-2 py-1"
-          style={{ fontSize: `${fontSize}px` }}
+          className="hide-scrollbar flex h-full flex-col overflow-y-auto px-2 py-1"
+          style={{ fontSize: `${fontSize}px`, color: fontColor, gap: `${messageGap}px` }}
         >
           {loading && messages.length === 0 ? (
             <div className="flex items-center gap-2 py-2 text-white/50">
@@ -461,12 +512,15 @@ export function ChatOverlay({ isReplay = false, onClose }: ChatOverlayProps) {
           ) : (
             rows.map((row) => (
               <ExpiringRow key={row.message.id} lifetimeSeconds={lifetimeSeconds}>
-                <OverlayChatRow
-                  row={row}
-                  bubbles={bubbles}
-                  avatars={avatars}
-                  badges={badges}
-                />
+                <motion.div
+                  initial={
+                    animation === "none" ? false : animation === "fade" ? { opacity: 0 } : { opacity: 0, x: 24 }
+                  }
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.12, ease: "easeOut" }}
+                >
+                  <OverlayChatRow row={row} style={rowStyle} />
+                </motion.div>
               </ExpiringRow>
             ))
           )}
@@ -496,7 +550,6 @@ export function ChatOverlay({ isReplay = false, onClose }: ChatOverlayProps) {
       {!locked && (
         <div
           onPointerDown={beginGesture("resize")}
-          data-drag-ignore="true"
           role="presentation"
           className="absolute bottom-0 right-0 z-30 h-4 w-4 cursor-nwse-resize touch-none"
         >
@@ -519,7 +572,15 @@ function ExpiringRow({ lifetimeSeconds, children }: { lifetimeSeconds: number; c
   return <>{children}</>;
 }
 
-function MessageBody({ segments, message }: { segments: LiveChatSegment[]; message: string }) {
+function MessageBody({
+  segments,
+  message,
+  emoteSize = 1,
+}: {
+  segments: LiveChatSegment[];
+  message: string;
+  emoteSize?: number;
+}) {
   const toSrc = useProxyImageSrc();
   if (!segments?.length) return <>{message}</>;
   return (
@@ -530,7 +591,8 @@ function MessageBody({ segments, message }: { segments: LiveChatSegment[]; messa
             key={index}
             src={toSrc(segment.emojiImageUrl)}
             alt={segment.text}
-            className="inline-block h-[1.15em] w-[1.15em] align-text-bottom"
+            className="inline-block align-text-bottom"
+            style={{ width: `${1.15 * emoteSize}em`, height: `${1.15 * emoteSize}em` }}
           />
         ) : (
           <span key={index}>{segment.text}</span>
@@ -544,57 +606,106 @@ function authorNameColor(message: LiveChatMessage): string {
   if (message.isOwner) return "text-amber-400";
   if (message.isModerator) return "text-emerald-400";
   if (message.isVerified) return "text-sky-400";
-  if (message.isMember) return "text-purple-400";
+  if (message.isMember) return "text-green-400";
   return "";
 }
 
-function AuthorBadges({ message }: { message: LiveChatMessage }) {
+function AuthorBadges({ message, size = 12 }: { message: LiveChatMessage; size?: number }) {
   if (!message.isModerator && !message.isVerified && !message.isMember) return null;
   return (
     <span className="inline-flex shrink-0 items-center gap-0.5 align-middle" aria-hidden="true">
-      {message.isModerator && <ShieldBadge />}
-      {message.isVerified && <VerifiedBadge />}
-      {message.isMember && <MemberBadge />}
+      {message.isModerator && <ShieldBadge size={size} />}
+      {message.isVerified && <VerifiedBadge size={size} />}
+      {message.isMember && <MemberBadge size={size} />}
     </span>
   );
 }
 
-function ShieldBadge() {
+function BadgeSvg({ size, className, path }: { size: number; className: string; path: string }) {
   return (
-    <svg viewBox="0 0 24 24" className="h-3 w-3 fill-emerald-400" aria-hidden="true">
-      <path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3z" />
+    <svg viewBox="0 0 24 24" className={className} style={{ width: size, height: size }} aria-hidden="true">
+      <path d={path} />
     </svg>
   );
 }
 
-function VerifiedBadge() {
+function ShieldBadge({ size }: { size: number }) {
   return (
-    <svg viewBox="0 0 24 24" className="h-3 w-3 fill-sky-400" aria-hidden="true">
-      <path d="M12 2l2.4 2.1 3.2-.4 1 3 2.9 1.3-1 3.1 1 3.1-2.9 1.3-1 3-3.2-.4L12 22l-2.4-2.1-3.2.4-1-3L2.5 16l1-3.1-1-3.1 2.9-1.3 1-3 3.2.4L12 2zm-1 13.4l5-5-1.4-1.4-3.6 3.6-1.8-1.8L7.8 12l3.2 3.4z" />
-    </svg>
+    <BadgeSvg
+      size={size}
+      className="fill-emerald-400"
+      path="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3z"
+    />
   );
 }
 
-function MemberBadge() {
+function VerifiedBadge({ size }: { size: number }) {
   return (
-    <svg viewBox="0 0 24 24" className="h-3 w-3 fill-purple-400" aria-hidden="true">
-      <path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.2l-6.1 3.4 1.4-6.8L2.2 9.1l6.9-.8L12 2z" />
-    </svg>
+    <BadgeSvg
+      size={size}
+      className="fill-sky-400"
+      path="M12 2l2.4 2.1 3.2-.4 1 3 2.9 1.3-1 3.1 1 3.1-2.9 1.3-1 3-3.2-.4L12 22l-2.4-2.1-3.2.4-1-3L2.5 16l1-3.1-1-3.1 2.9-1.3 1-3 3.2.4L12 2zm-1 13.4l5-5-1.4-1.4-3.6 3.6-1.8-1.8L7.8 12l3.2 3.4z"
+    />
   );
 }
 
-interface OverlayChatRowProps {
-  row: { message: LiveChatMessage; count: number; highlighted: boolean };
+function MemberBadge({ size }: { size: number }) {
+  return (
+    <BadgeSvg
+      size={size}
+      className="fill-green-400"
+      path="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.2l-6.1 3.4 1.4-6.8L2.2 9.1l6.9-.8L12 2z"
+    />
+  );
+}
+
+interface OverlayRowStyle {
   bubbles: boolean;
   avatars: boolean;
   badges: boolean;
+  fontColor: string;
+  fontWeight: string;
+  outline: string;
+  bubbleOpacity: number;
+  avatarSize: number;
+  badgeSize: number;
+  emoteSize: number;
+  nameColorMode: string;
+  nameColor: string;
+  hideUsernames: boolean;
 }
 
-function OverlayChatRow({ row, bubbles, avatars, badges }: OverlayChatRowProps) {
+function textOutlineShadow(outline: string): string | undefined {
+  if (outline === "normal") return "0 0 2px #000, 1px 1px 1px #000";
+  if (outline === "bold") return "0 0 3px #000, 1px 1px 0 #000, 2px 2px 2px #000";
+  return undefined;
+}
+
+function OverlayChatRow({
+  row,
+  style,
+}: {
+  row: { message: LiveChatMessage; count: number; highlighted: boolean };
+  style: OverlayRowStyle;
+}) {
   const toSrc = useProxyImageSrc();
   const { message, count, highlighted } = row;
-  const nameColor = authorNameColor(message) || authorColor(message.author);
-  const bubbleClass = bubbles ? "rounded-lg bg-white/10 px-2 py-1.5" : "px-0.5 py-0.5";
+  const { bubbles, avatars, badges } = style;
+  const roleColor = authorNameColor(message);
+  const nameStyle =
+    roleColor || style.nameColorMode !== "custom"
+      ? undefined
+      : { color: style.nameColor };
+  const nameClass = roleColor || (style.nameColorMode === "custom" ? "" : authorColor(message.author));
+  const fontWeight = style.fontWeight === "bold" ? 700 : 400;
+  const outlineShadow = textOutlineShadow(style.outline);
+  const bodyStyle = {
+    color: style.fontColor,
+    fontWeight,
+    textShadow: outlineShadow,
+  } as const;
+  const bubbleBg = bubbles ? `rgba(0, 0, 0, ${style.bubbleOpacity / 100})` : undefined;
+  const bubbleClass = bubbles ? "rounded-lg px-2 py-1.5" : "px-0.5 py-0.5";
   const highlightClass = highlighted ? "ring-2 ring-amber-400/70 bg-amber-400/10" : "";
 
   if (message.messageType === "superChat") {
@@ -612,8 +723,8 @@ function OverlayChatRow({ row, bubbles, avatars, badges }: OverlayChatRowProps) 
           {message.superChatAmount && <span className="shrink-0">{message.superChatAmount}</span>}
         </div>
         {message.message && (
-          <div className={`px-2 py-1 break-words ${textMain} opacity-90`}>
-            <MessageBody segments={message.segments} message={message.message} />
+          <div className={`px-2 py-1 break-words ${textMain} opacity-90`} style={{ fontWeight }}>
+            <MessageBody segments={message.segments} message={message.message} emoteSize={style.emoteSize} />
           </div>
         )}
       </div>
@@ -622,17 +733,17 @@ function OverlayChatRow({ row, bubbles, avatars, badges }: OverlayChatRowProps) 
 
   if (message.messageType === "membership") {
     return (
-      <div className={`rounded-lg border-l-2 border-purple-400/60 bg-purple-400/10 px-2 py-1.5 ${highlightClass}`}>
-        <div className="flex items-center gap-1.5 text-xs font-bold text-purple-300">
+      <div className={`rounded-lg border-l-2 border-green-400/60 bg-green-400/10 px-2 py-1.5 ${highlightClass}`}>
+        <div className="flex items-center gap-1.5 text-xs font-bold text-green-300">
           <span className="truncate">{message.author}</span>
-          <span className="rounded bg-purple-400/20 px-1 py-px text-[10px] uppercase tracking-wide">
+          <span className="rounded bg-green-400/20 px-1 py-px text-[10px] uppercase tracking-wide">
             {getString("chat_overlay_member_chip")}
           </span>
-          {badges && <AuthorBadges message={message} />}
+          {badges && <AuthorBadges message={message} size={12 * style.badgeSize} />}
         </div>
         {message.message && (
-          <div className="mt-0.5 break-words text-white/90">
-            <MessageBody segments={message.segments} message={message.message} />
+          <div className="mt-0.5 break-words" style={bodyStyle}>
+            <MessageBody segments={message.segments} message={message.message} emoteSize={style.emoteSize} />
           </div>
         )}
       </div>
@@ -640,24 +751,40 @@ function OverlayChatRow({ row, bubbles, avatars, badges }: OverlayChatRowProps) 
   }
 
   return (
-    <div className={cx("flex gap-1.5", bubbleClass, bubbles && highlighted && highlightClass)}>
-      {avatars && (
-        message.authorPhotoUrl ? (
+    <div
+      className={cx("flex gap-1.5", bubbleClass, bubbles && highlighted && highlightClass)}
+      style={{ backgroundColor: bubbleBg }}
+    >
+      {avatars &&
+        (message.authorPhotoUrl ? (
           <img
             src={toSrc(message.authorPhotoUrl)}
             alt=""
-            className="mt-0.5 h-5 w-5 shrink-0 rounded-full object-cover"
+            className="mt-0.5 shrink-0 rounded-full object-cover"
+            style={{ width: 20 * style.avatarSize, height: 20 * style.avatarSize }}
           />
         ) : (
-          <div className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-white/15" />
-        )
-      )}
-      <p className="min-w-0 flex-1 break-words leading-snug text-white/95">
-        <span className={cx("mr-1.5 inline-flex items-center gap-1 align-middle text-[0.85em] font-semibold", nameColor)}>
-          {message.author}
-          {badges && <AuthorBadges message={message} />}
-        </span>
-        <MessageBody segments={message.segments} message={message.message} />
+          <div
+            className="mt-0.5 shrink-0 rounded-full bg-white/15"
+            style={{ width: 20 * style.avatarSize, height: 20 * style.avatarSize }}
+          />
+        ))}
+      <p className="min-w-0 flex-1 break-words leading-snug" style={bodyStyle}>
+        {style.hideUsernames ? (
+          badges && <AuthorBadges message={message} size={12 * style.badgeSize} />
+        ) : (
+          <span
+            className={cx(
+              "mr-1.5 inline-flex items-center gap-1 align-middle text-[0.85em] font-semibold",
+              nameClass,
+            )}
+            style={nameStyle}
+          >
+            {message.author}
+            {badges && <AuthorBadges message={message} size={12 * style.badgeSize} />}
+          </span>
+        )}
+        <MessageBody segments={message.segments} message={message.message} emoteSize={style.emoteSize} />
         {count > 1 && (
           <span className="ml-1.5 inline-block rounded-full bg-white/15 px-1.5 align-middle text-[10px] font-bold text-white/80">
             x{count}

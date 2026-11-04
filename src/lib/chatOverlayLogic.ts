@@ -134,17 +134,15 @@ export function prefersDarkText(argb: number | null | undefined): boolean {
   return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 > 0.6;
 }
 
-/** Stable hash so an author always gets the same accent hue. */
-export function authorHue(name: string): number {
+/** YouTube-like author accents, deterministic per name; purple hues excluded. */
+const AUTHOR_PALETTE = ["#3ea6ff", "#4dd0c4", "#2ba640", "#ffd600", "#ffb84d", "#ff8a5c", "#ff7a9c"];
+
+export function authorColor(name: string): string {
   let hash = 0;
   for (let i = 0; i < name.length; i += 1) {
     hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
   }
-  return hash % 360;
-}
-
-export function authorColor(name: string): string {
-  return `hsl(${authorHue(name)}, 65%, 72%)`;
+  return AUTHOR_PALETTE[hash % AUTHOR_PALETTE.length] ?? "#3ea6ff";
 }
 
 export function messageText(message: LiveChatMessage): string {
@@ -198,12 +196,12 @@ function isEmojiSegment(segment: LiveChatSegment): boolean {
   return isEmojiText(segment.text ?? "");
 }
 
-/** More than 8 emoji segments, or more than 60% emoji characters overall. */
-export function isEmojiSpam(message: LiveChatMessage): boolean {
+/** Emoji spam once the segment count crosses the threshold, or emoji dominates the text. */
+export function isEmojiSpam(message: LiveChatMessage, threshold = 8): boolean {
   const segments = message.segments ?? [];
   if (segments.length === 0) return false;
   const emojiSegments = segments.filter(isEmojiSegment);
-  if (emojiSegments.length > 8) return true;
+  if (emojiSegments.length > threshold) return true;
   const allChars = Array.from(messageText(message).replace(/\s/g, ""));
   if (allChars.length === 0) return false;
   let emojiChars = 0;
@@ -241,6 +239,8 @@ export interface OverlayFilterOptions {
   filteredWords: string[];
   blockedUsers: string[];
   emojiSpamFilter: boolean;
+  emojiSpamThreshold?: number;
+  superChatMinAmount?: number;
 }
 
 /** The overlay's view of a message: visible, and highlighted when it matches a keyword. */
@@ -250,10 +250,20 @@ export interface OverlayMessage {
 }
 
 export function toOverlayMessages(messages: LiveChatMessage[], options: OverlayFilterOptions): OverlayMessage[] {
+  const spamThreshold = options.emojiSpamThreshold ?? 8;
+  const minAmount = options.superChatMinAmount ?? 0;
   return messages
     .filter((message) => !isFilteredByWords(message, options.filteredWords))
     .filter((message) => !isBlockedUser(message, options.blockedUsers))
-    .filter((message) => !(options.emojiSpamFilter && isEmojiSpam(message)))
+    .filter((message) => !(options.emojiSpamFilter && isEmojiSpam(message, spamThreshold)))
+    .filter(
+      (message) =>
+        !(
+          minAmount > 0 &&
+          message.messageType === "superChat" &&
+          (parseAmount(message.superChatAmount)?.value ?? 0) < minAmount
+        ),
+    )
     .map((message) => ({ message, highlighted: matchesHighlight(message, options.keywords) }));
 }
 
