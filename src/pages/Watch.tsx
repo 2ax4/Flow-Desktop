@@ -43,7 +43,8 @@ export function Watch() {
   const dearrowData = usePlayerStore((s) => s.dearrowData);
   const rydData = usePlayerStore((s) => s.rydData);
   const setDearrowData = usePlayerStore((s) => s.setDearrowData);
-  const setRydData = usePlayerStore((s) => s.setRydData);  const setAutoplayCandidates = usePlayerStore((s) => s.setAutoplayCandidates);
+  const setRydData = usePlayerStore((s) => s.setRydData);
+  const setAutoplayCandidates = usePlayerStore((s) => s.setAutoplayCandidates);
   const addToQueue = usePlayerStore((s) => s.addToQueue);
 
   const { loadSubscriptions } = useSubscriptionStore();

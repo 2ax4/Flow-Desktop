@@ -393,7 +393,7 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     if (!seed) return;
     const generation = radioSession.generation;
 
-    radioInFlight = (async () => {
+    const request = (async () => {
       set({ radioLoading: true });
       try {
         const queueIds = () => new Set(get().queue.map(videoIdOf));
@@ -428,11 +428,15 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
       } finally {
         if (radioSession.generation === generation) {
           set({ radioLoading: false, radioExhausted: radioSession.isExhausted() });
-          radioInFlight = null;
         }
       }
-    })();
-    return radioInFlight;
+    })().finally(() => {
+      // Cleared here, not in the body: a top-up served from the pool finishes
+      // before the assignment below, which would then keep the settled promise.
+      if (radioInFlight === request) radioInFlight = null;
+    });
+    radioInFlight = request;
+    return request;
   },
 
   _loadIndex: async (index, options) => {
@@ -748,7 +752,9 @@ export const useMusicPlayerStore = create<MusicPlayerState>((set, get) => ({
     if (remote) return remote.command("volume", { vol: Math.round(clamp01(volume) * 100) });
     const vol = clamp01(volume);
     musicAudioEngine.setVolume(vol);
-    set({ volume: vol, isMuted: vol === 0 ? get().isMuted : false });
+    const isMuted = vol === 0 ? get().isMuted : false;
+    if (get().isMuted && !isMuted) musicAudioEngine.setMuted(false);
+    set({ volume: vol, isMuted });
     saveConfig(get);
   },
 

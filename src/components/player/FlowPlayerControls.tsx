@@ -48,6 +48,7 @@ import {
 import { SponsorBlockIcon } from "../ui/SponsorBlockIcon";
 import { sponsorBlockCategoryLabel } from "../../lib/sponsorBlockCategories";
 import { getString } from "../../lib/i18n/index";
+import { isAtLiveEdge, liveEdgePosition, liveWindow, readLiveTiming, secondsBehindLive } from "../../lib/liveEdge";
 import { Slider } from "../ui/Slider";
 import { useWheelVolume } from "../../lib/useWheelVolume";
 
@@ -113,13 +114,6 @@ const defaultSpeedOptions: PlaybackRate[] = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
-}
-
-// The seekable DVR window of a live stream: [start, end] in player-timeline seconds.
-function liveWindow(video: HTMLVideoElement) {
-  const len = video.seekable.length;
-  if (!len) return { start: 0, end: 0 };
-  return { start: video.seekable.start(0), end: video.seekable.end(len - 1) };
 }
 
 function formatTime(value: number) {
@@ -199,11 +193,15 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
     toggleChatOverlayOpen,
   } = usePlayerStore();
 
-  const volumeRef = useWheelVolume<HTMLDivElement>({
+  const changeVolume = (value: number) => {
+    setVolume(value);
+    setMuted(value === 0);
+  };
+  const volumeWheelRef = useWheelVolume({
     volume,
     muted,
-    onVolumeChange: setVolume,
-    onMuteChange: setMuted,
+    onVolumeChange: changeVolume,
+    onUnmute: () => setMuted(false),
   });
 
   // In fullscreen the panel buttons drive the side panel beside the video instead of the sidebar.
@@ -235,6 +233,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
   const hoverSegmentLabelRef = useRef<HTMLSpanElement>(null);
   const hoverPreviewRef = useRef<HTMLDivElement>(null);
   const liveDotRef = useRef<HTMLSpanElement>(null);
+  const timePillRef = useRef<HTMLDivElement>(null);
   const proxyBase = useImageProxyStore((state) => state.base);
   const previewLevel = pickStoryboardLevel(storyboard);
   const previewHeight = previewLevel ? Math.round((previewLevel.height * PREVIEW_WIDTH) / previewLevel.width) : 0;
@@ -286,28 +285,25 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
       if (isLive) {
         const { start, end } = liveWindow(video);
         const win = Math.max(1, end - start);
-        const isAtLiveEdge = end - cur <= 8;
-        const livePct = isAtLiveEdge
+        const timing = readLiveTiming(video);
+        const atEdge = isAtLiveEdge(cur, end, timing);
+        const livePct = atEdge
           ? "100%"
           : `${Math.min(100, Math.max(0, ((cur - start) / win) * 100))}%`;
         setStyleIfChanged(progressBarRef.current, "width", livePct);
         for (const fill of [...progressFills, ...bufferedFills]) setStyleIfChanged(fill, "width", livePct);
         setStyleIfChanged(playheadRef.current, "left", livePct);
         setStyleIfChanged(chapterPillRef.current, "display", "none");
-        if (isAtLiveEdge) {
-          setTextIfChanged(currentTimeRef.current, "Live");
-          if (liveDotRef.current) {
-            liveDotRef.current.className = "h-1.5 w-1.5 rounded-full bg-chrome-red-500 animate-pulse";
-          }
-        } else {
-          const behindSeconds = Math.max(0, Math.round(end - cur));
-          setTextIfChanged(currentTimeRef.current, `-${formatTime(behindSeconds)}`);
-          if (liveDotRef.current) {
-            liveDotRef.current.className = "h-1.5 w-1.5 rounded-full bg-chrome-zinc-500";
-          }
-        }
+        // The Live button beside it already says so at the edge.
+        setStyleIfChanged(timePillRef.current, "display", atEdge ? "none" : "");
+        if (!atEdge) setTextIfChanged(currentTimeRef.current, `-${formatTime(secondsBehindLive(cur, end, timing))}`);
+        const dotClass = atEdge
+          ? "h-1.5 w-1.5 rounded-full bg-chrome-red-500 animate-pulse"
+          : "h-1.5 w-1.5 rounded-full bg-chrome-zinc-500";
+        if (liveDotRef.current && liveDotRef.current.className !== dotClass) liveDotRef.current.className = dotClass;
         return;
       }
+      setStyleIfChanged(timePillRef.current, "display", "");
 
       const dur = video.duration || duration || 0;
       const pct = `${dur > 0 ? Math.min(100, Math.max(0, (cur / dur) * 100)) : 0}%`;
@@ -380,11 +376,13 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
         const { start, end } = liveWindow(video);
         const win = Math.max(1, end - start);
         const targetTime = start + (x / rect.width) * win;
-        const behind = Math.max(0, Math.round(end - targetTime));
+        const timing = readLiveTiming(video);
         pill.style.left = `${Math.min(rect.width - 24, Math.max(24, x))}px`;
         pill.style.opacity = "1";
         if (hoverTextRef.current) {
-          hoverTextRef.current.textContent = behind <= 8 ? "Live" : `-${formatTime(behind)}`;
+          hoverTextRef.current.textContent = isAtLiveEdge(targetTime, end, timing)
+            ? getString("live_badge")
+            : `-${formatTime(secondsBehindLive(targetTime, end, timing))}`;
         }
         if (hoverSegmentRef.current) {
           hoverSegmentRef.current.style.display = "none";
@@ -495,7 +493,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
   const seekToLiveEdge = () => {
     const video = containerRef.current?.querySelector("video");
     if (video && video.seekable.length) {
-      seekTo(Math.max(video.seekable.start(0), video.seekable.end(video.seekable.length - 1) - 1));
+      seekTo(liveEdgePosition(liveWindow(video), readLiveTiming(video)));
     }
   };
 
@@ -507,8 +505,8 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
     <>
       <div
         className={cx(
-          "pointer-events-none absolute inset-0 z-20 flex h-full w-full flex-col justify-end bg-gradient-to-t from-chrome-black/60 via-chrome-black/25 to-transparent pt-16 transition-opacity duration-200",
-          isTheaterMode ? "px-4 pb-3 sm:px-6 sm:pb-4 lg:px-8" : "px-3 pb-2 sm:px-5 sm:pb-3",
+          "pointer-events-none absolute inset-0 z-20 flex h-full w-full flex-col justify-end bg-gradient-to-t from-chrome-black/85 via-chrome-black/40 to-transparent pt-24 transition-opacity duration-200",
+          isTheaterMode ? "px-4 pb-3 sm:px-6 sm:pb-4 lg:px-8" : "px-3 pb-3 sm:px-5 sm:pb-4",
           shouldShowControls ? "opacity-100" : "opacity-0"
         )}
       >
@@ -679,10 +677,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
                 <SkipForward size={19} fill="currentColor" />
               </button>
 
-              <div
-                ref={volumeRef}
-                className="group/volume hidden items-center sm:flex bg-chrome-black/20 rounded-full hover:pr-2"
-              >
+              <div ref={volumeWheelRef} className="group/volume hidden items-center sm:flex bg-chrome-black/20 rounded-full hover:pr-2">
                 <button
                   type="button"
                   title="Mute"
@@ -704,17 +699,14 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
                     max={1}
                     step={0.01}
                     value={muted ? 0 : volume}
-                    onChange={(value) => {
-                      setVolume(value);
-                      setMuted(value === 0);
-                    }}
+                    onChange={changeVolume}
                   />
                 </div>
 
               </div>
 
               <div className="ml-1 flex items-center gap-1.5">
-                <div className="whitespace-nowrap text-xs font-semibold text-chrome-white sm:text-sm bg-chrome-black/20 rounded-full px-2 py-1">
+                <div ref={timePillRef} className="whitespace-nowrap text-xs font-semibold text-chrome-white sm:text-sm bg-chrome-black/20 rounded-full px-2 py-1">
                   <span ref={currentTimeRef} />
                   {!isLive && (
                     <>
@@ -732,7 +724,7 @@ export const FlowPlayerControls: React.FC<FlowPlayerControlsProps> = ({
                     className="flex items-center gap-1 whitespace-nowrap rounded-full bg-chrome-black/20 px-2 py-1 text-xs font-bold uppercase tracking-wide text-chrome-white hover:bg-chrome-white/10"
                   >
                     <span ref={liveDotRef} className="h-1.5 w-1.5 rounded-full bg-chrome-red-500 animate-pulse" />
-                    Live
+                    {getString("live_badge")}
                   </button>
                 )}
               </div>

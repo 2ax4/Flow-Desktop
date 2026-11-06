@@ -23,7 +23,7 @@ use super::keys::MemberSecrets;
 use super::lan::{LanRole, lan_frame_aad, lan_hello_aad, lan_session_keys, lan_transcript};
 use super::paths::parse_log_path;
 use super::payload::{decode_payload, encode_payload};
-use super::roster::{Entry, Role, parse_entry};
+use super::roster::{Entry, Role, Sender, parse_entry};
 use super::sealed::{open, random_bytes, seal};
 use super::store::Store;
 use super::{Error, array};
@@ -44,11 +44,10 @@ pub const IDLE: Duration = Duration::from_secs(3);
 pub enum Request {
     Roster {
         after: i64,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        head: Option<String>,
     },
     Key {
         epoch: u32,
+        kc: String,
         name: String,
     },
     List {
@@ -215,20 +214,20 @@ fn did_bytes(did: &str) -> Result<[u8; 16]> {
         .ok_or(EngineError::Unexpected)
 }
 
-/// The connecting side: says hello under the current epoch, with the port it listens on, and
-/// checks the advertiser.
+/// The connecting side: says hello under `epoch`, whose key is `epoch_key`, with the port it listens
+/// on, and checks the advertiser. [`EngineError::LanUnreachable`] when the advertiser didn't answer.
 pub async fn hello_as_client<S, T>(
     mut socket: WsChannel<S>,
     session: &Session<'_, T>,
     device: &MemberSecrets,
+    (epoch, epoch_key): (u32, &[u8]),
     listening: Option<u16>,
 ) -> Result<(Framed<S>, String)>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send,
     T: Store,
 {
-    let epoch = session.roster().epoch;
-    let lan_key = purpose_key(session.current_key(), session.group(), epoch, Purpose::Lan);
+    let lan_key = purpose_key(epoch_key, session.group(), epoch, Purpose::Lan);
     let me = hex::encode(device.did);
     let client_nonce = random_bytes::<NONCE_SIZE>();
     let mut hello = json!({ "did": me, "n": URL_SAFE_NO_PAD.encode(client_nonce) });
@@ -239,7 +238,10 @@ where
         .send_binary(hello_frame(epoch, &lan_key, 1, &hello)?)
         .await?;
 
-    let reply = socket.recv_binary().await?;
+    let reply = socket
+        .recv_binary()
+        .await
+        .map_err(|_| EngineError::LanUnreachable)?;
     if frame_epoch(&reply)? != epoch {
         return Err(EngineError::Unexpected);
     }
@@ -362,7 +364,7 @@ pub type LiveSink = Arc<dyn Fn(Vec<u8>) + Send + Sync>;
 pub struct Holder {
     pub store: HeldStore,
     pub group: [u8; 16],
-    pub signing_keys: BTreeMap<String, [u8; 32]>,
+    pub senders: BTreeMap<String, Sender>,
     pub live: LiveSink,
 }
 
@@ -371,7 +373,7 @@ impl Holder {
         Self {
             store,
             group: *session.group(),
-            signing_keys: session.signing_keys().clone(),
+            senders: session.senders().clone(),
             live,
         }
     }
@@ -383,15 +385,15 @@ impl Holder {
             ..Response::default()
         };
         Ok(match request {
-            Request::Roster { after, head } => (
+            Request::Roster { after } => (
                 Response {
                     ok: true,
-                    entries: Some(self.store.roster_for(after, head.as_deref()).await?),
+                    entries: Some(self.store.candidates_after(after).await?),
                     ..Response::default()
                 },
                 Vec::new(),
             ),
-            Request::Key { epoch, name } => match self.store.key(epoch, &name).await? {
+            Request::Key { epoch, kc, name } => match self.store.key(epoch, &kc, &name).await? {
                 Some(bytes) => (found(true), bytes),
                 None => (found(false), Vec::new()),
             },
@@ -411,7 +413,7 @@ impl Holder {
             },
             Request::Put { path } => {
                 let accepted = parse_log_path(&path).is_some_and(|(did, seq)| {
-                    verify_logged(bytes, &self.group, &self.signing_keys, &did, seq).is_ok()
+                    verify_logged(bytes, &self.group, &self.senders, &did, seq).is_ok()
                 });
                 if accepted {
                     self.store.put_object(&path, bytes.to_vec()).await?;
@@ -544,14 +546,15 @@ impl Link {
         Ok(response.ok.then_some(bytes))
     }
 
-    pub async fn roster(&self, after: i64, head: Option<String>) -> Result<Vec<Entry>> {
-        let (response, _) = self.ask(Request::Roster { after, head }).await?;
+    pub async fn roster(&self, after: i64) -> Result<Vec<Entry>> {
+        let (response, _) = self.ask(Request::Roster { after }).await?;
         response.entries.ok_or(EngineError::Unexpected)
     }
 
-    pub async fn key(&self, epoch: u32, name: &str) -> Result<Option<Vec<u8>>> {
+    pub async fn key(&self, epoch: u32, kc: &str, name: &str) -> Result<Option<Vec<u8>>> {
         self.bytes(Request::Key {
             epoch,
+            kc: kc.to_owned(),
             name: name.to_owned(),
         })
         .await
@@ -774,27 +777,10 @@ mod tests {
 
     #[test]
     fn headers_are_canonical_json_lines() {
-        let roster = request_header(
-            &Request::Roster {
-                after: -1,
-                head: None,
-            },
-            0,
-        );
+        let roster = request_header(&Request::Roster { after: -1 }, 0);
         assert_eq!(
             frame_content(&roster, &[]),
             br#"{"after":-1,"id":0,"op":"roster"}"#
-        );
-        let after_head = request_header(
-            &Request::Roster {
-                after: 1,
-                head: Some("ab".into()),
-            },
-            1,
-        );
-        assert_eq!(
-            frame_content(&after_head, &[]),
-            br#"{"after":1,"head":"ab","id":1,"op":"roster"}"#
         );
         let get = request_header(
             &Request::Get {

@@ -1,64 +1,37 @@
-import { useCallback, useEffect, useRef } from "react";
-import { volumeAfterWheel } from "./musicPlayerKeys";
+import { useCallback, useRef } from "react";
+
+import { newWheelGesture, wheelStep, wheelVolumeChange } from "./wheelVolume";
 
 export interface UseWheelVolumeOptions {
+  /** From 0 to 1. */
   volume: number;
   muted: boolean;
   onVolumeChange: (volume: number) => void;
-  onMuteChange?: (muted: boolean) => void;
+  onUnmute?: () => void;
 }
 
 /**
- * Attaches a non-passive wheel event listener that adjusts volume via `volumeAfterWheel`
- * and calls `event.preventDefault()` + `event.stopPropagation()` so the wheel event
- * does not trigger scrolling in parent containers (such as Shorts snap-scroll or page scroll).
- *
- * Uses a callback ref so it attaches correctly even when conditionally rendered (e.g. `{active && <div ref={ref} />}`).
+ * Ref for a volume control that the wheel should adjust. The listener is native because only a
+ * non-passive one can stop the page or the Shorts feed scrolling too. React's `onWheel` can't.
  */
-export function useWheelVolume<T extends HTMLElement = HTMLDivElement>({
-  volume,
-  muted,
-  onVolumeChange,
-  onMuteChange,
-}: UseWheelVolumeOptions) {
-  const stateRef = useRef({ volume, muted, onVolumeChange, onMuteChange });
-  stateRef.current = { volume, muted, onVolumeChange, onMuteChange };
+export function useWheelVolume<T extends HTMLElement = HTMLDivElement>(options: UseWheelVolumeOptions) {
+  const latest = useRef(options);
+  latest.current = options;
 
-  const cleanupRef = useRef<(() => void) | null>(null);
-
-  const ref = useCallback((node: T | null) => {
-    if (cleanupRef.current) {
-      cleanupRef.current();
-      cleanupRef.current = null;
-    }
-
-    if (node) {
-      const handleWheel = (event: WheelEvent) => {
-        event.preventDefault();
-        event.stopPropagation();
-        const { volume, muted, onVolumeChange, onMuteChange } = stateRef.current;
-        const current = muted ? 0 : volume;
-        const next = volumeAfterWheel(current, event.deltaY);
-        if (muted && next > 0) onMuteChange?.(false);
-        else if (!muted && next === 0) onMuteChange?.(true);
-        onVolumeChange(next);
-      };
-
-      node.addEventListener("wheel", handleWheel, { passive: false });
-      cleanupRef.current = () => {
-        node.removeEventListener("wheel", handleWheel);
-      };
-    }
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (cleanupRef.current) {
-        cleanupRef.current();
-        cleanupRef.current = null;
-      }
+  return useCallback((node: T | null) => {
+    if (!node) return;
+    const gesture = newWheelGesture();
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const step = wheelStep(gesture, event.deltaY, event.deltaMode, event.timeStamp);
+      if (step === 0) return;
+      const { volume, muted, onVolumeChange, onUnmute } = latest.current;
+      const change = wheelVolumeChange(volume, muted, step);
+      if (change.unmute) onUnmute?.();
+      if (change.volume !== undefined) onVolumeChange(change.volume);
     };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
   }, []);
-
-  return ref;
 }

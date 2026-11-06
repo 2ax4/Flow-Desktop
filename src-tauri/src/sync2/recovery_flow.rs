@@ -12,8 +12,9 @@ use super::entries::{Draft, build_entry, member_subject};
 use super::epoch::check_epoch_key;
 use super::keys::MemberSecrets;
 use super::linking::DeviceMeta;
-use super::membership::{append_checked, new_epoch};
+use super::membership::{append_checked, members_after, new_epoch};
 use super::meta::seal_device_meta;
+use super::paths::kc_name;
 use super::recovery::{recovery_keys, recovery_words};
 use super::roster::{Entry, Op, Role, RosterState, apply_entry, replay_roster};
 use super::sealed::random_bytes;
@@ -27,26 +28,6 @@ use crate::sync::canonical::to_canonical_json;
 pub struct Restored {
     pub entries: Vec<Entry>,
     pub words: String,
-}
-
-fn members_with(
-    state: &RosterState,
-    without: &str,
-    extra: &[&MemberSecrets],
-) -> Result<Vec<([u8; 16], [u8; 32])>> {
-    let mut members = Vec::new();
-    for (did, member) in state
-        .members
-        .iter()
-        .filter(|(did, _)| did.as_str() != without)
-    {
-        members.push((
-            array(&hex::decode(did).map_err(|_| Error::RosterFormat)?),
-            member.kem,
-        ));
-    }
-    members.extend(extra.iter().map(|m| (m.did, m.kem_public)));
-    Ok(members)
 }
 
 async fn append<S: Store>(
@@ -87,7 +68,7 @@ fn replacement(
     let epoch = new_epoch(
         group,
         state.epoch + 1,
-        &members_with(state, old, &[&next])?,
+        &members_after(state, &[old.to_owned()], &[&next])?,
         current_key,
     )?;
     let draft = Draft {
@@ -99,6 +80,7 @@ fn replacement(
             Role::Recovery,
         )]),
         remove: Some(vec![old.to_owned()]),
+        cut: None,
         epoch: Some(epoch.field),
         meta: None,
     };
@@ -148,8 +130,11 @@ pub async fn restore<S: Store>(
         return Err(EngineError::RecoveryUsed);
     }
     let group: [u8; 16] = array(&hex::decode(&state.group).map_err(|_| Error::Group)?);
+    let commitment = URL_SAFE_NO_PAD
+        .decode(&state.kc)
+        .map_err(|_| Error::RosterFormat)?;
     let wrap = as_recovery
-        .key(state.epoch, &recovery_id)
+        .key(state.epoch, &kc_name(&commitment), &recovery_id)
         .await?
         .ok_or(Error::KeyCommitment)?;
     let current = unwrap_epoch_key(
@@ -159,19 +144,12 @@ pub async fn restore<S: Store>(
         &recovery.did,
         &wrap,
     )?;
-    check_epoch_key(
-        &current,
-        &group,
-        state.epoch,
-        &URL_SAFE_NO_PAD
-            .decode(&state.kc)
-            .map_err(|_| Error::RosterFormat)?,
-    )?;
+    check_epoch_key(&current, &group, state.epoch, &commitment)?;
 
     let restored = new_epoch(
         &group,
         state.epoch + 1,
-        &members_with(&state, "", &[device])?,
+        &members_after(&state, &[], &[device])?,
         &current,
     )?;
     let sealed_meta = seal_device_meta(
@@ -191,6 +169,7 @@ pub async fn restore<S: Store>(
             Role::Device,
         )]),
         remove: None,
+        cut: None,
         epoch: Some(restored.field),
         meta: Some(BTreeMap::from([(
             hex::encode(device.did),

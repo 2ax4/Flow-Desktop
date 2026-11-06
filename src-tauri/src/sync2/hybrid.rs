@@ -107,6 +107,20 @@ impl<S: Store + Sync> Store for HybridStore<S> {
         }
     }
 
+    /// The server's answer decides while it answers. What arrived from LAN peers stays held.
+    async fn roster_view(&self) -> Result<Vec<Entry>> {
+        match self.store.roster_view().await {
+            Ok(entries) => {
+                for entry in &entries {
+                    self.held.hold_entry(entry).await?;
+                }
+                Ok(entries)
+            }
+            Err(error) if unreachable(&error) => self.held.roster_view().await,
+            Err(error) => Err(error),
+        }
+    }
+
     async fn append_roster(
         &self,
         head: &str,
@@ -123,15 +137,27 @@ impl<S: Store + Sync> Store for HybridStore<S> {
         Ok(appended)
     }
 
-    async fn key(&self, epoch: u32, name: &str) -> Result<Option<Vec<u8>>> {
-        if let Some(bytes) = self.held.key(epoch, name).await? {
+    async fn key(&self, epoch: u32, kc: &str, name: &str) -> Result<Option<Vec<u8>>> {
+        if let Some(bytes) = self.held.key(epoch, kc, name).await? {
             return Ok(Some(bytes));
         }
-        let fetched = self.store.key(epoch, name).await?;
-        if let Some(bytes) = &fetched {
-            self.held.hold_key(epoch, name, bytes).await?;
-        }
-        Ok(fetched)
+        self.store.key(epoch, kc, name).await
+    }
+
+    async fn keep_key(&self, epoch: u32, kc: &str, name: &str, bytes: &[u8]) -> Result<()> {
+        self.held.hold_key(epoch, kc, name, bytes).await
+    }
+
+    async fn drop_key(&self, epoch: u32, kc: &str, name: &str) -> Result<()> {
+        self.held.forget_key(epoch, kc, name).await
+    }
+
+    async fn keep_object(&self, path: &str, bytes: &[u8]) -> Result<()> {
+        self.held.put_object(path, bytes.to_vec()).await
+    }
+
+    async fn drop_object(&self, path: &str) -> Result<()> {
+        self.held.delete_object(path).await.map(|_| ())
     }
 
     async fn put_object(&self, path: &str, bytes: Vec<u8>) -> Result<()> {
@@ -153,11 +179,7 @@ impl<S: Store + Sync> Store for HybridStore<S> {
         if let Some(bytes) = self.held.get_object(path).await? {
             return Ok(Some(bytes));
         }
-        let fetched = self.store.get_object(path).await?;
-        if let Some(bytes) = &fetched {
-            self.held.put_object(path, bytes.clone()).await?;
-        }
-        Ok(fetched)
+        self.store.get_object(path).await
     }
 
     async fn delete_object(&self, path: &str) -> Result<bool> {

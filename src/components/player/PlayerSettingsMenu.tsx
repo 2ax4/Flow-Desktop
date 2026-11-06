@@ -1,6 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef } from "react";
 import {
-  AlertTriangle,
   AudioLines,
   Captions,
   Check,
@@ -11,12 +10,15 @@ import {
   Pause,
   Sliders,
   SlidersHorizontal,
-  Sparkles,
+  SunDim,
 } from "lucide-react";
 import type { PlaybackRate } from "../../store/usePlayerStore";
 import type { AudioTrack, CaptionTrack, StreamVariant } from "../../types/video";
 import { SubtitleCustomizer } from "./SubtitleCustomizer";
 import { useBoolPref } from "../../lib/usePreference";
+import { IS_MAIN_WINDOW } from "../../lib/appWindow";
+import { AmbientModeIcon } from "../ui/AmbientModeIcon";
+import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { SETTINGS } from "../../lib/settings/schema";
 import { SleepTimerLabel } from "../sleep/SleepTimerLabel";
 import { SleepTimerPanel } from "../sleep/SleepTimerPanel";
@@ -24,7 +26,6 @@ import { useEqActive } from "../../lib/audio/eq/useEqualizer";
 import { videoEqAvailable } from "../../lib/audio/mediaEqEngine";
 import { useEqStore } from "../../store/useEqStore";
 import { videoCodecLabel } from "../../lib/settings/playerRuntime";
-import { useQualitySuitability } from "../../lib/qualitySuitability";
 import { getString } from "../../lib/i18n/index";
 import { MOTION_EASE, motionMs } from "../../lib/motion";
 import { PLAYER_MENU_ATTR } from "../../lib/playerMenuDismiss";
@@ -128,8 +129,8 @@ export function PlayerSettingsMenu({
   const eqActive = useEqActive();
   const eqEditorHosted = useEqStore((s) => s.editorHosted);
   const openEqEditor = useEqStore((s) => s.setEditorOpen);
-  const { suitabilityMap, hasDemandingQualities } = useQualitySuitability(qualities);
-  const [ambientMode, setAmbientMode] = useBoolPref(SETTINGS.AMBIENT_MODE_ENABLED, true);
+  const [ambientMode, setAmbientMode] = useBoolPref(SETTINGS.AMBIENT_MODE_ENABLED);
+  const [ambientGlow, setAmbientGlow] = useBoolPref(SETTINGS.AMBIENT_GLOW_ENABLED);
 
   const panesRef = useRef<HTMLDivElement>(null);
   const shownPaneRef = useRef(pane);
@@ -199,33 +200,12 @@ export function PlayerSettingsMenu({
     </button>
   );
 
-  const toggleRow = (label: string, checked: boolean, icon: React.ReactNode, onToggle: () => void) => (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={onToggle}
-      className={cx(ROW, "h-10 py-0 text-chrome-zinc-100 hover:bg-chrome-white/10")}
-    >
+  const toggleRow = (label: string, checked: boolean, icon: React.ReactNode, onChange: (next: boolean) => void) => (
+    <div className={cx(ROW, "text-chrome-zinc-100")}>
       <span className="grid h-6 w-6 shrink-0 place-items-center text-chrome-zinc-300">{icon}</span>
       <span className="min-w-0 flex-1">{label}</span>
-      <span className="text-right font-normal text-chrome-zinc-400">
-        {getString(checked ? "eq_state_on" : "eq_state_off")}
-      </span>
-      <div
-        className={cx(
-          "relative h-5 w-9 shrink-0 rounded-full transition-colors duration-200 ease-out",
-          checked ? "bg-primary" : "bg-chrome-white/20",
-        )}
-      >
-        <span
-          className={cx(
-            "absolute top-0.5 h-4 w-4 rounded-full bg-chrome-white transition-transform duration-200 ease-out",
-            checked ? "left-[18px]" : "left-0.5",
-          )}
-        />
-      </div>
-    </button>
+      <ToggleSwitch checked={checked} onChange={onChange} />
+    </div>
   );
 
   const check = (on: boolean) => (on ? <Check size={17} className="shrink-0 text-chrome-white" /> : null);
@@ -272,12 +252,22 @@ export function PlayerSettingsMenu({
         {pane === "root" && (
           <div className="space-y-0.5">
             {settingRow(getString("player_menu_speed"), speedLabel(playbackRate), <Gauge size={18} />, () => onPaneChange("speed"))}
-            {toggleRow(
-              getString("settings_ambient_mode"),
-              ambientMode,
-              <Sparkles size={18} />,
-              () => setAmbientMode(!ambientMode),
-            )}
+            {/* The pop-out draws no glow, and its settings copy never reaches the main window. */}
+            {IS_MAIN_WINDOW &&
+              toggleRow(
+                getString("settings_ambient_mode"),
+                ambientMode,
+                <AmbientModeIcon size={18} />,
+                setAmbientMode,
+              )}
+            {IS_MAIN_WINDOW &&
+              ambientMode &&
+              toggleRow(
+                getString("settings_ambient_glow"),
+                ambientGlow,
+                <SunDim size={18} />,
+                setAmbientGlow,
+              )}
             {settingRow(
               getString("player_menu_quality"),
               qualityLabel(selectedQualityId, qualities, activeQualityLabel),
@@ -370,10 +360,6 @@ export function PlayerSettingsMenu({
             {qualities.map((quality) => {
               const codec = videoCodecLabel(quality.mimeType);
               const playable = audioPlayable(quality);
-              const suitability = suitabilityMap[quality.id];
-              const isRecommended = suitability?.isRecommended;
-              const isDemanding = suitability?.isDemanding;
-
               return (
                 <button
                   key={quality.id}
@@ -384,55 +370,18 @@ export function PlayerSettingsMenu({
                   }}
                   className={cx(
                     ROW,
-                    playable
-                      ? isDemanding
-                        ? "text-chrome-red-400 hover:bg-chrome-red-950/20"
-                        : isRecommended
-                          ? "text-chrome-emerald-400 hover:bg-chrome-emerald-950/20"
-                          : "text-chrome-zinc-100 hover:bg-chrome-white/10"
-                      : "cursor-not-allowed text-chrome-zinc-500",
+                    "text-chrome-zinc-100",
+                    playable ? "hover:bg-chrome-white/10" : "cursor-not-allowed text-chrome-zinc-500",
                   )}
                 >
-                  <span className="flex min-w-0 flex-col text-left leading-tight">
-                    <span className={cx(isRecommended && "font-semibold text-chrome-emerald-400", isDemanding && "font-semibold text-chrome-red-400")}>
-                      {quality.qualityLabel}
-                    </span>
-                    {codec && (
-                      <span className={cx(
-                        "text-xs font-normal",
-                        isDemanding
-                          ? "text-chrome-red-400/70"
-                          : isRecommended
-                            ? "text-chrome-emerald-400/70"
-                            : "text-chrome-zinc-400",
-                      )}>
-                        {codec}
-                      </span>
-                    )}
+                  <span className="flex flex-col text-left leading-tight">
+                    <span>{quality.qualityLabel}</span>
+                    {codec && <span className="text-xs font-normal text-chrome-zinc-400">{codec}</span>}
                   </span>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {isRecommended && (
-                      <span className="rounded-full border border-chrome-emerald-800/80 bg-chrome-emerald-950/60 px-2 py-0.5 text-[11px] font-medium text-chrome-emerald-400">
-                        {getString("player_quality_recommended")}
-                      </span>
-                    )}
-                    {isDemanding && (
-                      <span className="rounded-full border border-chrome-red-800/80 bg-chrome-red-950/60 px-2 py-0.5 text-[11px] font-medium text-chrome-red-400">
-                        {getString("player_quality_demanding")}
-                      </span>
-                    )}
-                    {check(selectedQualityId === quality.id)}
-                  </div>
+                  {check(selectedQualityId === quality.id)}
                 </button>
               );
             })}
-
-            {hasDemandingQualities && (
-              <div className="mt-2 flex items-center gap-1.5 border-t border-chrome-white/10 px-2 pt-2 text-[11px] text-chrome-zinc-400">
-                <AlertTriangle size={13} className="shrink-0 text-chrome-red-400" />
-                <span>{getString("player_quality_demanding_tip")}</span>
-              </div>
-            )}
           </div>
         )}
 

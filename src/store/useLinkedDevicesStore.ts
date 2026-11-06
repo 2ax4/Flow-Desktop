@@ -6,26 +6,31 @@ import {
   askToJoin,
   answerCode,
   cancelLink,
+  cancelLoginChange,
   createGroup,
   createLanGroup,
   createWebdavGroup,
   declineJoin,
   enterCode,
+  finishLoginChange,
   forgetGroup,
   getJoinRequests,
   getLinkPhase,
   getLinkedDevices,
   getLinkedStatus,
+  keepSide,
   leaveGroup,
   markRecoverySaved,
   onLinkPhase,
   onSynced,
+  answerRecoveryNotice,
   removeDevice,
   renameDevice,
   replaceRecovery,
   restoreGroup,
   retryKeychain,
   showCode,
+  startLoginChange,
   syncNow,
   updateLogin,
   type FolderAccess,
@@ -67,6 +72,9 @@ interface LinkedState {
   createOnLan: () => Promise<void>;
   createOnWebdav: (url: string, user: string, password: string) => Promise<void>;
   updateLogin: (user: string, password: string) => Promise<void>;
+  startLoginChange: (user: string, password: string) => Promise<void>;
+  finishLoginChange: () => Promise<void>;
+  cancelLoginChange: () => Promise<void>;
   retryKeychain: () => Promise<void>;
   /** Restores from a Flow server, or with `login` from a WebDAV folder. */
   restore: (url: string, words: string, login?: WebdavLogin) => Promise<void>;
@@ -83,9 +91,11 @@ interface LinkedState {
   /** Replaces the recovery key and shows the new words. */
   replaceRecovery: () => Promise<void>;
   rename: (id: string, name: string) => Promise<void>;
-  remove: (id: string) => Promise<void>;
+  remove: (id: string, also?: string[]) => Promise<void>;
+  answerRecoveryNotice: () => Promise<void>;
   leave: () => Promise<void>;
   forget: () => Promise<void>;
+  keepSide: (entry: string) => Promise<void>;
   syncNow: () => Promise<void>;
 }
 
@@ -179,6 +189,24 @@ export const useLinkedDevicesStore = create<LinkedState>((set, get) => {
         await get().refresh();
       }),
 
+    startLoginChange: (user, password) =>
+      run(async () => {
+        await startLoginChange(user, password);
+        await get().refresh();
+      }),
+
+    finishLoginChange: () =>
+      run(async () => {
+        await finishLoginChange();
+        await get().refresh();
+      }),
+
+    cancelLoginChange: () =>
+      run(async () => {
+        await cancelLoginChange();
+        await get().refresh();
+      }),
+
     retryKeychain: () =>
       run(async () => {
         await retryKeychain();
@@ -235,10 +263,16 @@ export const useLinkedDevicesStore = create<LinkedState>((set, get) => {
         await loadDevices();
       }),
 
-    remove: (id) =>
+    remove: (id, also) =>
       run(async () => {
-        await removeDevice(id);
+        const words = await removeDevice(id, also);
+        if (words) set({ words });
         await loadDevices();
+      }),
+
+    answerRecoveryNotice: () =>
+      run(async () => {
+        await answerRecoveryNotice();
       }),
 
     leave: () =>
@@ -254,6 +288,12 @@ export const useLinkedDevicesStore = create<LinkedState>((set, get) => {
     forget: () =>
       run(async () => {
         await forgetGroup();
+        await get().refresh();
+      }),
+
+    keepSide: (entry) =>
+      run(async () => {
+        await keepSide(entry);
         await get().refresh();
       }),
 
