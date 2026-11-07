@@ -35,6 +35,8 @@ pub async fn youtube_login_start<R: Runtime>(app: AppHandle<R>) -> Result<(), Er
         builder = builder.additional_browser_args(crate::webview2::BROWSER_ARGS);
     }
 
+    // Only `web_process::watch` consumes the window, and that runs on Linux.
+    #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
     let window = builder.build().map_err(|error| {
         ErrorResponse::from(AppError::Internal(format!(
             "Failed to open the YouTube login window: {error}"
