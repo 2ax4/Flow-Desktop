@@ -118,7 +118,10 @@ windows = { version = "0.62", features = [
   "Win32_System_Variant",
   "Win32_System_Diagnostics_ToolHelp",
 ] }
-windows-core = "0.100"
+# Must pair with the `windows` crate above: the `#[implement]` macro from windows
+# 0.62 expands to `::windows_core::` paths, so a newer direct windows-core hijacks
+# the expansion and breaks the volume mixer build (E0277/E0603).
+windows-core = "0.62"
 
 # Single-instance: forward a second `flow://` launch to the running window
 # instead of spawning a duplicate. The "deep-link" feature makes it hand the
